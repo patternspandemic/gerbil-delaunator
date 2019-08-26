@@ -272,18 +272,26 @@
 ;;;     }
 (defmethod {update Delaunator}
   (lambda (self)
+    ; DONE
     ;;; function dist(ax, ay, bx, by) {
     ;;;     const dx = ax - bx;
     ;;;     const dy = ay - by;
     ;;;     return dx * dx + dy * dy;
     ;;; }
-    ; (def (dist ax ay bx by) ...)
+    (def (dist ax ay bx by)
+      (let ((dx (- ax bx))
+            (dy (- ay by)))
+        (+ (* dx dx) (* dy dy))))
 
+    ; DONE
     ;;; function orient(px, py, qx, qy, rx, ry) {
     ;;;     return (qy - py) * (rx - qx) - (qx - px) * (ry - qy) < 0;
     ;;; }
-    ; (def (orient px py qx qy rx ry) ...)
+    (def (orient px py qx qy rx ry)
+      (< (- (* (- qy py) (- rx qx)) (* (- qx px) (- ry qy)))
+         0))
 
+    ; DONE
     ;;; function circumradius(ax, ay, bx, by, cx, cy) {
     ;;;     const dx = bx - ax;
     ;;;     const dy = by - ay;
@@ -299,8 +307,19 @@
     ;;; 
     ;;;     return x * x + y * y;
     ;;; }
-    ; (def (circumradius ax ay bx by cx cy) ...)
+    (def (circumradius ax ay bx by cx cy)
+      (let* ((dx (- bx ax))
+             (dy (- by ay))
+             (ex (- cx ax))
+             (ey (- cy ay))
+             (bl (+ (* dx dx) (* dy dy)))
+             (cl (+ (* ex ex) (* ey ey)))
+             (d  (/ 0.5 (- (* dx ey) (* dy ex))))
+             (x (* (- (* ey bl) (* dy cl)) d))
+             (y (* (- (* dx cl) (* ex bl)) d)))
+        (+ (* x x) (* y y))))
 
+    ; DONE
     ;;; function circumcenter(ax, ay, bx, by, cx, cy) {
     ;;;     const dx = bx - ax;
     ;;;     const dy = by - ay;
@@ -316,7 +335,17 @@
     ;;; 
     ;;;     return {x, y};
     ;;; }
-    ; (def (circumcenter ax ay bx by cx cy) ...)
+    (def (circumcenter ax ay bx by cx cy)
+      (let* ((dx (- bx ax))
+             (dy (- by ay))
+             (ex (- cx ax))
+             (ey (- cy ay))
+             (bl (+ (* dx dx) (* dy dy)))
+             (cl (+ (* ex ex) (* ey ey)))
+             (d  (/ 0.5 (- (* dx ey) (* dy ex))))
+             (x (+ ax (* (- (* ey bl) (* dy cl)) d)))
+             (y (+ ay (* (- (* dx cl) (* ex bl)) d))))
+        (values x y)))
 
     ;;; function quicksort(ids, dists, left, right) {
     ;;;     if (right - left <= 20) {
@@ -356,17 +385,37 @@
     ;;;         }
     ;;;     }
     ;;; }
-    ; (def (quicksort ids dists left right)
+    (def (quicksort ids dists left right)
+      ; DONE
+      ;;; function swap(arr, i, j) {
+      ;;;     const tmp = arr[i];
+      ;;;     arr[i] = arr[j];
+      ;;;     arr[j] = tmp;
+      ;;; }
+      (def (swap vec i j)
+        (let (tmp (u32vector-ref vec i))
+          (u32vector-set! vec i (u32vector-ref vec j))
+          (u32vector-set! vec j tmp)))
 
-        ;;; function swap(arr, i, j) {
-        ;;;     const tmp = arr[i];
-        ;;;     arr[i] = arr[j];
-        ;;;     arr[j] = tmp;
-        ;;; }
-        ; TODO: Nest in quicksort proc
-    ;   (def (swap arr i j) ...)
-    ;   ...)
-    (error "Not implemented")))
+      (if (<= (- right left) 20)
+          (let loop (i (1+ left))
+            (when (<= i right)
+              (let* ((temp (u32vector-ref ids i))
+                     (temp-dist (f64vector-ref dists temp)))
+                (let loopi (j (1- i))
+                  (when (and (>= j left)
+                             (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist))
+                    (u32vector-set! ids (1+ j) (u32vector-ref ids (1- j)))
+                    (loopi (1- j)))
+                  (u32vector-set! ids (1+ j) temp)))
+              (loop (1+ i))))
+          (;else ...
+          )
+      )
+
+    ) ; end quicksort impl.
+    
+    (error "Not implemented"))) ;continue update impl.
 
 
 ; DONE
@@ -388,7 +437,7 @@
     (let ((cx (@ self _cx))
           (cy (@ self _cy))
           (hs (@ self _hash-size)))
-      (floor-remainder
+      (modulo
         (exact (floor (* (pseudo-angle (- x cx) (- y cy)) hs)))
         hs))))
 
@@ -500,17 +549,19 @@
     (error "Not implemented")))
 
 
-;
+; DONE
 ;;;     _link(a, b) {
 ;;;         this._halfedges[a] = b;
 ;;;         if (b !== -1) this._halfedges[b] = a;
 ;;;     }
 (defmethod {_link Delaunator}
   (lambda (self a b)
-    (error "Not implemented")))
+    (let (halfedges (@ self _halfedges))
+      (s32vector-set! halfedges a b)
+      (unless (= b -1) (s32vector-set! halfedges b a)))))
 
 
-;
+; DONE
 ;;;     // add a new triangle given vertex indices and adjacent half-edge ids
 ;;;     _addTriangle(i0, i1, i2, a, b, c) {
 ;;;         const t = this.trianglesLen;
@@ -529,7 +580,16 @@
 ;;;     }
 (defmethod {_add-triangle Delaunator}
   (lambda (self i0 i1 i2 a b c)
-    (error "Not implemented")))
+    (let ((t (@ self triangles-length))
+          (triangles (@ self _triangles)))
+      (u32vector-set! triangles t i0)
+      (u32vector-set! triangles (+ t 1) i1)
+      (u32vector-set! triangles (+ t 2) i2)
+      {_link self t a}
+      {_link self (+ t 1) b}
+      {_link self (+ t 2) c}
+      (set! (@ self triangles-length) (+ t 3))
+      t))) ; return position of added triangle
 
 
 ; DONE
@@ -545,6 +605,7 @@
       (f64vector-set! coords (1+ (* 2 k)) (get/y p)))
     (make-Delaunator coords)))
 
+; MAYBE
 ; Procs to pull out to module level for possible reuse?
 ; - in-circle
 ; - swap
