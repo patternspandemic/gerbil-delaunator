@@ -1,19 +1,17 @@
-
 (import :std/iter
         :gerbil/gambit/bits
         :gerbil/gambit/exact
         :gerbil/gambit/hvectors)
 
-(export #t) ; TODO: Only export apropriate methods, procs
+(export
+  delaunator/from
+  Delaunator-coords
+  Delaunator-triangles
+  Delaunator-halfedges
+  Delaunator-hull)
 
-; DONE
-;;; const EPSILON = Math.pow(2, -52);
 (def EPSILON (expt 2 -52))
-
-; DONE
-;;; const EDGE_STACK = new Uint32Array(512);
 (def EDGE_STACK (make-u32vector 512))
-
 
 (defclass Delaunator
   (coords     ; initial flattened coords
@@ -31,51 +29,27 @@
    _dists)    ; helper for sorting points
   constructor: :init!)
 
-; DONE
-;;;     constructor(coords) {
-;;;         const n = coords.length >> 1;
-;;;         if (n > 0 && typeof coords[0] !== 'number') throw new Error('Expected coords to contain numbers.');
-;;; 
-;;;         this.coords = coords;
-;;; 
-;;;         // arrays that will store the triangulation graph
-;;;         const maxTriangles = Math.max(2 * n - 5, 0);
-;;;         this._triangles = new Uint32Array(maxTriangles * 3);
-;;;         this._halfedges = new Int32Array(maxTriangles * 3);
-;;; 
-;;;         // temporary arrays for tracking the edges of the advancing convex hull
-;;;         this._hashSize = Math.ceil(Math.sqrt(n));
-;;;         this._hullPrev = new Uint32Array(n); // edge to prev edge
-;;;         this._hullNext = new Uint32Array(n); // edge to next edge
-;;;         this._hullTri =  new Uint32Array(n); // edge to adjacent triangle
-;;;         this._hullHash = new Int32Array(this._hashSize).fill(-1); // angular edge hash
-;;; 
-;;;         // temporary arrays for sorting points
-;;;         this._ids = new Uint32Array(n);
-;;;         this._dists = new Float64Array(n);
-;;; 
-;;;         this.update();
-;;;     }
 (defmethod {:init! Delaunator}
-  (lambda (self coords)
-    (unless (f64vector? coords)
-            (error "Expected coords to be f64vector"))
-    (let* ((n (arithmetic-shift (f64vector-length coords) -1)) ; num of coords
-           (max-triangles (fxmax (- (* 2 n) 5) 0))
+  (lambda (self coordinates)
+    ; (unless (f64vector? coordinates)
+    ;         (error "Expected coordinates to be f64vector"))
+    (let* ((n (arithmetic-shift (f64vector-length coordinates) -1)) ; num of coords
+           (max-triangles (max (- (* 2 n) 5) 0))
            (hash-size (exact (ceiling (sqrt n)))))
-      (set! (Delaunator-coords self) coords)
+      (set! (@ self coords) coordinates)
       ; Vectors that will store the triangulation graph
-      (set! (Delaunator-_triangles self) (make-u32vector (* max-triangles 3)))
-      (set! (Delaunator-_halfedges self) (make-s32vector (* max-triangles 3)))
+      (set! (@ self _triangles) (make-u32vector (* max-triangles 3)))
+      (set! (@ self _halfedges) (make-s32vector (* max-triangles 3)))
       ; Temporary vectors for tracking the edges of the advancing convex hull
-      (set! (Delaunator-_hash-size self) hash-size)
-      (set! (Delaunator-_hull-prev self) (make-u32vector n))
-      (set! (Delaunator-_hull-next self) (make-u32vector n))
-      (set! (Delaunator-_hull-tri self) (make-u32vector n))
-      (set! (Delaunator-_hull-hash self) (make-s32vector hash-size -1))
+      (set! (@ self _hash-size) hash-size)
+      (set! (@ self _hull-prev) (make-u32vector n))
+      (set! (@ self _hull-next) (make-u32vector n))
+      (set! (@ self _hull-tri) (make-u32vector n))
+      (set! (@ self _hull-hash) (make-s32vector hash-size -1))
       ; Temporary vectors for sorting points
-      (set! (Delaunator-_ids self) (make-u32vector n))
-      (set! (Delaunator-_dists self) (make-f64vector n)))))
+      (set! (@ self _ids) (make-u32vector n))
+      (set! (@ self _dists) (make-f64vector n)))
+    {update self}))
 
 ;;;     update() {
 ;;;         const {coords, _hullPrev: hullPrev, _hullNext: hullNext, _hullTri: hullTri, _hullHash: hullHash} =  this;
@@ -288,10 +262,26 @@
 ;;;         this.triangles = this._triangles.subarray(0, this.trianglesLen);
 ;;;         this.halfedges = this._halfedges.subarray(0, this.trianglesLen);
 ;;;     }
+(defmethod {update Delaunator}
+  (lambda (self)
+    ; (def (dist ax ay bx by) ...)
+    ; (def (orient px py qx qy rx ry) ...)
+    ; (def (circumradius ax ay bx by cx cy) ...)
+    ; (def (circumcenter ax ay bx by cx cy) ...)
+    ; (def (quicksort ids dists left right)
+    ;   (def (swap arr i j) ...)
+    ;   ...)
+    (error "Not implemented")))
+
 ;
 ;;;     _hashKey(x, y) {
 ;;;         return Math.floor(pseudoAngle(x - this._cx, y - this._cy) * this._hashSize) % this._hashSize;
 ;;;     }
+(defmethod {_hash-key Delaunator}
+  (lambda (self x y)
+    ; (def (pseudo-angle dx dy) ...)
+    (error "Not implemented")))
+
 ;
 ;;;     _legalize(a) {
 ;;;         const {_triangles: triangles, _halfedges: halfedges, coords} = this;
@@ -377,11 +367,20 @@
 ;;; 
 ;;;         return ar;
 ;;;     }
+(defmethod {_legalize Delaunator}
+  (lambda (self a)
+    ; (def (in-circle ax ay bx by cx cy px py) ...)
+    (error "Not implemented")))
+
 ;
 ;;;     _link(a, b) {
 ;;;         this._halfedges[a] = b;
 ;;;         if (b !== -1) this._halfedges[b] = a;
 ;;;     }
+(defmethod {_link Delaunator}
+  (lambda (self a b)
+    (error "Not implemented")))
+
 ;
 ;;;     // add a new triangle given vertex indices and adjacent half-edge ids
 ;;;     _addTriangle(i0, i1, i2, a, b, c) {
@@ -399,23 +398,28 @@
 ;;; 
 ;;;         return t;
 ;;;     }
-;;; }
+(defmethod {_add-triangle Delaunator}
+  (lambda (self i0 i1 i2 a b c)
+    (error "Not implemented")))
 
 ;;; // monotonically increases with real angle, but doesn't need expensive trigonometry
 ;;; function pseudoAngle(dx, dy) {
 ;;;     const p = dx / (Math.abs(dx) + Math.abs(dy));
 ;;;     return (dy > 0 ? 3 - p : 1 + p) / 4; // [0..1]
 ;;; }
+; TODO: Nest in _hash-key method
 
 ;;; function dist(ax, ay, bx, by) {
 ;;;     const dx = ax - bx;
 ;;;     const dy = ay - by;
 ;;;     return dx * dx + dy * dy;
 ;;; }
+; TODO: Nest in update method
 
 ;;; function orient(px, py, qx, qy, rx, ry) {
 ;;;     return (qy - py) * (rx - qx) - (qx - px) * (ry - qy) < 0;
 ;;; }
+; TODO: Nest in update method
 
 ;;; function inCircle(ax, ay, bx, by, cx, cy, px, py) {
 ;;;     const dx = ax - px;
@@ -433,6 +437,7 @@
 ;;;            dy * (ex * cp - bp * fx) +
 ;;;            ap * (ex * fy - ey * fx) < 0;
 ;;; }
+; TODO: Nest in _legalize method
 
 ;;; function circumradius(ax, ay, bx, by, cx, cy) {
 ;;;     const dx = bx - ax;
@@ -449,6 +454,7 @@
 ;;; 
 ;;;     return x * x + y * y;
 ;;; }
+; TODO: Nest in update method
 
 ;;; function circumcenter(ax, ay, bx, by, cx, cy) {
 ;;;     const dx = bx - ax;
@@ -465,6 +471,7 @@
 ;;; 
 ;;;     return {x, y};
 ;;; }
+; TODO: Nest in update method
 
 ;;; function quicksort(ids, dists, left, right) {
 ;;;     if (right - left <= 20) {
@@ -504,26 +511,15 @@
 ;;;         }
 ;;;     }
 ;;; }
+; TODO: Nest in update method
 
 ;;; function swap(arr, i, j) {
 ;;;     const tmp = arr[i];
 ;;;     arr[i] = arr[j];
 ;;;     arr[j] = tmp;
 ;;; }
+; TODO: Nest in quicksort proc
 
-; DONE
-;;;     static from(points, getX = defaultGetX, getY = defaultGetY) {
-;;;         const n = points.length;
-;;;         const coords = new Float64Array(n * 2);
-;;; 
-;;;         for (let i = 0; i < n; i++) {
-;;;             const p = points[i];
-;;;             coords[2 * i] = getX(p);
-;;;             coords[2 * i + 1] = getY(p);
-;;;         }
-;;; 
-;;;         return new Delaunator(coords);
-;;;     }
 (def (delaunator/from points
                       get/x: (get/x car)
                       get/y: (get/y cadr))
