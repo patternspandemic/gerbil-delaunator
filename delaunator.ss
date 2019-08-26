@@ -13,21 +13,27 @@
 (def EPSILON (expt 2 -52))
 (def EDGE_STACK (make-u32vector 512))
 
+
 (defclass Delaunator
-  (coords     ; initial flattened coords
-   triangles  ; trimmed version of _triangles
-   halfedges  ; trimmed version of _halfedges
-   hull       ; halfedges of the final convex hull
-   _triangles ; triangles indexed by halfedge
-   _halfedges ; halfedges indexed by their complement
-   _hash-size ; computed size for _hull-hash
-   _hull-prev ; edge to prev edge
-   _hull-next ; edge to next edge
-   _hull-tri  ; edge to adjacent triangle
-   _hull-hash ; angular edge hash
-   _ids       ; helper for sorting points
-   _dists)    ; helper for sorting points
+  (coords           ; initial flattened coords
+   triangles        ; trimmed version of _triangles
+   halfedges        ; trimmed version of _halfedges
+   hull             ; halfedges of the final convex hull
+   triangles-length ; length to trim to
+   _triangles       ; triangles indexed by halfedge
+   _halfedges       ; halfedges indexed by their complement
+   _hash-size       ; computed size for _hull-hash
+   _hull-start      ; temporary hull start
+   _hull-prev       ; edge to prev edge
+   _hull-next       ; edge to next edge
+   _hull-tri        ; edge to adjacent triangle
+   _hull-hash       ; angular edge hash
+   _ids             ; helper for sorting points
+   _dists           ; helper for sorting points
+   _cx              ; temporary circumcenter x
+   _cy)             ; temporary circumcenter y
   constructor: :init!)
+
 
 (defmethod {:init! Delaunator}
   (lambda (self coordinates)
@@ -51,6 +57,8 @@
       (set! (@ self _dists) (make-f64vector n)))
     {update self}))
 
+
+;
 ;;;     update() {
 ;;;         const {coords, _hullPrev: hullPrev, _hullNext: hullNext, _hullTri: hullTri, _hullHash: hullHash} =  this;
 ;;;         const n = coords.length >> 1;
@@ -264,23 +272,126 @@
 ;;;     }
 (defmethod {update Delaunator}
   (lambda (self)
+    ;;; function dist(ax, ay, bx, by) {
+    ;;;     const dx = ax - bx;
+    ;;;     const dy = ay - by;
+    ;;;     return dx * dx + dy * dy;
+    ;;; }
     ; (def (dist ax ay bx by) ...)
+
+    ;;; function orient(px, py, qx, qy, rx, ry) {
+    ;;;     return (qy - py) * (rx - qx) - (qx - px) * (ry - qy) < 0;
+    ;;; }
     ; (def (orient px py qx qy rx ry) ...)
+
+    ;;; function circumradius(ax, ay, bx, by, cx, cy) {
+    ;;;     const dx = bx - ax;
+    ;;;     const dy = by - ay;
+    ;;;     const ex = cx - ax;
+    ;;;     const ey = cy - ay;
+    ;;; 
+    ;;;     const bl = dx * dx + dy * dy;
+    ;;;     const cl = ex * ex + ey * ey;
+    ;;;     const d = 0.5 / (dx * ey - dy * ex);
+    ;;; 
+    ;;;     const x = (ey * bl - dy * cl) * d;
+    ;;;     const y = (dx * cl - ex * bl) * d;
+    ;;; 
+    ;;;     return x * x + y * y;
+    ;;; }
     ; (def (circumradius ax ay bx by cx cy) ...)
+
+    ;;; function circumcenter(ax, ay, bx, by, cx, cy) {
+    ;;;     const dx = bx - ax;
+    ;;;     const dy = by - ay;
+    ;;;     const ex = cx - ax;
+    ;;;     const ey = cy - ay;
+    ;;; 
+    ;;;     const bl = dx * dx + dy * dy;
+    ;;;     const cl = ex * ex + ey * ey;
+    ;;;     const d = 0.5 / (dx * ey - dy * ex);
+    ;;; 
+    ;;;     const x = ax + (ey * bl - dy * cl) * d;
+    ;;;     const y = ay + (dx * cl - ex * bl) * d;
+    ;;; 
+    ;;;     return {x, y};
+    ;;; }
     ; (def (circumcenter ax ay bx by cx cy) ...)
+
+    ;;; function quicksort(ids, dists, left, right) {
+    ;;;     if (right - left <= 20) {
+    ;;;         for (let i = left + 1; i <= right; i++) {
+    ;;;             const temp = ids[i];
+    ;;;             const tempDist = dists[temp];
+    ;;;             let j = i - 1;
+    ;;;             while (j >= left && dists[ids[j]] > tempDist) ids[j + 1] = ids[j--];
+    ;;;             ids[j + 1] = temp;
+    ;;;         }
+    ;;;     } else {
+    ;;;         const median = (left + right) >> 1;
+    ;;;         let i = left + 1;
+    ;;;         let j = right;
+    ;;;         swap(ids, median, i);
+    ;;;         if (dists[ids[left]] > dists[ids[right]]) swap(ids, left, right);
+    ;;;         if (dists[ids[i]] > dists[ids[right]]) swap(ids, i, right);
+    ;;;         if (dists[ids[left]] > dists[ids[i]]) swap(ids, left, i);
+    ;;; 
+    ;;;         const temp = ids[i];
+    ;;;         const tempDist = dists[temp];
+    ;;;         while (true) {
+    ;;;             do i++; while (dists[ids[i]] < tempDist);
+    ;;;             do j--; while (dists[ids[j]] > tempDist);
+    ;;;             if (j < i) break;
+    ;;;             swap(ids, i, j);
+    ;;;         }
+    ;;;         ids[left + 1] = ids[j];
+    ;;;         ids[j] = temp;
+    ;;; 
+    ;;;         if (right - i + 1 >= j - left) {
+    ;;;             quicksort(ids, dists, i, right);
+    ;;;             quicksort(ids, dists, left, j - 1);
+    ;;;         } else {
+    ;;;             quicksort(ids, dists, left, j - 1);
+    ;;;             quicksort(ids, dists, i, right);
+    ;;;         }
+    ;;;     }
+    ;;; }
     ; (def (quicksort ids dists left right)
+
+        ;;; function swap(arr, i, j) {
+        ;;;     const tmp = arr[i];
+        ;;;     arr[i] = arr[j];
+        ;;;     arr[j] = tmp;
+        ;;; }
+        ; TODO: Nest in quicksort proc
     ;   (def (swap arr i j) ...)
     ;   ...)
     (error "Not implemented")))
 
-;
+
+; DONE
 ;;;     _hashKey(x, y) {
 ;;;         return Math.floor(pseudoAngle(x - this._cx, y - this._cy) * this._hashSize) % this._hashSize;
 ;;;     }
 (defmethod {_hash-key Delaunator}
   (lambda (self x y)
-    ; (def (pseudo-angle dx dy) ...)
-    (error "Not implemented")))
+    ;;; // monotonically increases with real angle, but doesn't need expensive trigonometry
+    ;;; function pseudoAngle(dx, dy) {
+    ;;;     const p = dx / (Math.abs(dx) + Math.abs(dy));
+    ;;;     return (dy > 0 ? 3 - p : 1 + p) / 4; // [0..1]
+    ;;; }
+    (def (pseudo-angle dx dy)
+      (let* ((p (/ dx (+ (abs dx) (abs dy))))
+             (n (if (> dy 0) (- 3 p) (1+ p))))
+        (/ n 4)))
+    
+    (let ((cx (@ self _cx))
+          (cy (@ self _cy))
+          (hs (@ self _hash-size)))
+      (floor-remainder
+        (exact (floor (* (pseudo-angle (- x cx) (- y cy)) hs)))
+        hs))))
+
 
 ;
 ;;;     _legalize(a) {
@@ -369,8 +480,25 @@
 ;;;     }
 (defmethod {_legalize Delaunator}
   (lambda (self a)
+    ;;; function inCircle(ax, ay, bx, by, cx, cy, px, py) {
+    ;;;     const dx = ax - px;
+    ;;;     const dy = ay - py;
+    ;;;     const ex = bx - px;
+    ;;;     const ey = by - py;
+    ;;;     const fx = cx - px;
+    ;;;     const fy = cy - py;
+    ;;; 
+    ;;;     const ap = dx * dx + dy * dy;
+    ;;;     const bp = ex * ex + ey * ey;
+    ;;;     const cp = fx * fx + fy * fy;
+    ;;; 
+    ;;;     return dx * (ey * cp - bp * fy) -
+    ;;;            dy * (ex * cp - bp * fx) +
+    ;;;            ap * (ex * fy - ey * fx) < 0;
+    ;;; }
     ; (def (in-circle ax ay bx by cx cy px py) ...)
     (error "Not implemented")))
+
 
 ;
 ;;;     _link(a, b) {
@@ -380,6 +508,7 @@
 (defmethod {_link Delaunator}
   (lambda (self a b)
     (error "Not implemented")))
+
 
 ;
 ;;;     // add a new triangle given vertex indices and adjacent half-edge ids
@@ -402,124 +531,9 @@
   (lambda (self i0 i1 i2 a b c)
     (error "Not implemented")))
 
-;;; // monotonically increases with real angle, but doesn't need expensive trigonometry
-;;; function pseudoAngle(dx, dy) {
-;;;     const p = dx / (Math.abs(dx) + Math.abs(dy));
-;;;     return (dy > 0 ? 3 - p : 1 + p) / 4; // [0..1]
-;;; }
-; TODO: Nest in _hash-key method
 
-;;; function dist(ax, ay, bx, by) {
-;;;     const dx = ax - bx;
-;;;     const dy = ay - by;
-;;;     return dx * dx + dy * dy;
-;;; }
-; TODO: Nest in update method
-
-;;; function orient(px, py, qx, qy, rx, ry) {
-;;;     return (qy - py) * (rx - qx) - (qx - px) * (ry - qy) < 0;
-;;; }
-; TODO: Nest in update method
-
-;;; function inCircle(ax, ay, bx, by, cx, cy, px, py) {
-;;;     const dx = ax - px;
-;;;     const dy = ay - py;
-;;;     const ex = bx - px;
-;;;     const ey = by - py;
-;;;     const fx = cx - px;
-;;;     const fy = cy - py;
-;;; 
-;;;     const ap = dx * dx + dy * dy;
-;;;     const bp = ex * ex + ey * ey;
-;;;     const cp = fx * fx + fy * fy;
-;;; 
-;;;     return dx * (ey * cp - bp * fy) -
-;;;            dy * (ex * cp - bp * fx) +
-;;;            ap * (ex * fy - ey * fx) < 0;
-;;; }
-; TODO: Nest in _legalize method
-
-;;; function circumradius(ax, ay, bx, by, cx, cy) {
-;;;     const dx = bx - ax;
-;;;     const dy = by - ay;
-;;;     const ex = cx - ax;
-;;;     const ey = cy - ay;
-;;; 
-;;;     const bl = dx * dx + dy * dy;
-;;;     const cl = ex * ex + ey * ey;
-;;;     const d = 0.5 / (dx * ey - dy * ex);
-;;; 
-;;;     const x = (ey * bl - dy * cl) * d;
-;;;     const y = (dx * cl - ex * bl) * d;
-;;; 
-;;;     return x * x + y * y;
-;;; }
-; TODO: Nest in update method
-
-;;; function circumcenter(ax, ay, bx, by, cx, cy) {
-;;;     const dx = bx - ax;
-;;;     const dy = by - ay;
-;;;     const ex = cx - ax;
-;;;     const ey = cy - ay;
-;;; 
-;;;     const bl = dx * dx + dy * dy;
-;;;     const cl = ex * ex + ey * ey;
-;;;     const d = 0.5 / (dx * ey - dy * ex);
-;;; 
-;;;     const x = ax + (ey * bl - dy * cl) * d;
-;;;     const y = ay + (dx * cl - ex * bl) * d;
-;;; 
-;;;     return {x, y};
-;;; }
-; TODO: Nest in update method
-
-;;; function quicksort(ids, dists, left, right) {
-;;;     if (right - left <= 20) {
-;;;         for (let i = left + 1; i <= right; i++) {
-;;;             const temp = ids[i];
-;;;             const tempDist = dists[temp];
-;;;             let j = i - 1;
-;;;             while (j >= left && dists[ids[j]] > tempDist) ids[j + 1] = ids[j--];
-;;;             ids[j + 1] = temp;
-;;;         }
-;;;     } else {
-;;;         const median = (left + right) >> 1;
-;;;         let i = left + 1;
-;;;         let j = right;
-;;;         swap(ids, median, i);
-;;;         if (dists[ids[left]] > dists[ids[right]]) swap(ids, left, right);
-;;;         if (dists[ids[i]] > dists[ids[right]]) swap(ids, i, right);
-;;;         if (dists[ids[left]] > dists[ids[i]]) swap(ids, left, i);
-;;; 
-;;;         const temp = ids[i];
-;;;         const tempDist = dists[temp];
-;;;         while (true) {
-;;;             do i++; while (dists[ids[i]] < tempDist);
-;;;             do j--; while (dists[ids[j]] > tempDist);
-;;;             if (j < i) break;
-;;;             swap(ids, i, j);
-;;;         }
-;;;         ids[left + 1] = ids[j];
-;;;         ids[j] = temp;
-;;; 
-;;;         if (right - i + 1 >= j - left) {
-;;;             quicksort(ids, dists, i, right);
-;;;             quicksort(ids, dists, left, j - 1);
-;;;         } else {
-;;;             quicksort(ids, dists, left, j - 1);
-;;;             quicksort(ids, dists, i, right);
-;;;         }
-;;;     }
-;;; }
-; TODO: Nest in update method
-
-;;; function swap(arr, i, j) {
-;;;     const tmp = arr[i];
-;;;     arr[i] = arr[j];
-;;;     arr[j] = tmp;
-;;; }
-; TODO: Nest in quicksort proc
-
+; DONE
+; MAYBE: support taking vector or list?
 (def (delaunator/from points
                       get/x: (get/x car)
                       get/y: (get/y cadr))
@@ -530,3 +544,10 @@
       (f64vector-set! coords (* 2 k) (get/x p))
       (f64vector-set! coords (1+ (* 2 k)) (get/y p)))
     (make-Delaunator coords)))
+
+; Procs to pull out to module level for possible reuse?
+; - in-circle
+; - swap
+; - dist
+; - circumradius
+; - circumcenter
