@@ -398,22 +398,60 @@
           (u32vector-set! vec j tmp)))
 
       (if (<= (- right left) 20)
-          (let loop (i (1+ left))
+          ; then
+          (let lp ((i (1+ left)))
             (when (<= i right)
               (let* ((temp (u32vector-ref ids i))
                      (temp-dist (f64vector-ref dists temp)))
-                (let loopi (j (1- i))
+                (let lpi ((j (1- i)))
                   (when (and (>= j left)
                              (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist))
                     (u32vector-set! ids (1+ j) (u32vector-ref ids (1- j)))
-                    (loopi (1- j)))
+                    (lpi (1- j)))
                   (u32vector-set! ids (1+ j) temp)))
-              (loop (1+ i))))
-          (;else ...
-          )
-      )
+              (lp (1+ i))))
+          ; else
+          (let* ((median (arithmetic-shift (+ left right) -1))
+                 (i (1+ left))
+                 (j right))
+            (swap ids median i)
+            (if (> (f64vector-ref dists (u32vector-ref ids left))
+                   (f64vector-ref dists (u32vector-ref ids right)))
+                (swap ids left right))
+            (if (> (f64vector-ref dists (u32vector-ref ids i))
+                   (f64vector-ref dists (u32vector-ref ids right)))
+                (swap ids i right))
+            (if (> (f64vector-ref dists (u32vector-ref ids left))
+                   (f64vector-ref dists (u32vector-ref ids i)))
+                (swap ids left i))
 
-    ) ; end quicksort impl.
+            (let* ((temp (u32vector-ref ids i))
+                   (temp-dist (f64vector-ref dists temp)))
+
+              (let lp ((_i i)
+                       (_j j))
+
+                (let ((final-i (do ((inner-i (1+ _i) (1+ inner-i)))
+                                ((< (f64vector-ref dists (u32vector-ref ids inner-i))
+                                      temp-dist) inner-i)))
+                      (final-j (do ((inner-j (1- _j) (1- inner-j)))
+                                ((> (f64vector-ref dists (u32vector-ref ids inner-j))
+                                      temp-dist) inner-j))))
+
+                  (unless (< final-j final-i)
+                    (swap ids final-i final-j)
+                    (lp temp temp-dist final-i final-j))
+
+                  (u32vector-set! ids (1+ left) (u32vector-ref ids final-j))
+                  (u32vector-set! ids final-j temp)
+
+                  (if (>= (- right (1+ final-i)) (- final-j left))
+                      ; then
+                      (begin (quicksort ids dists final-i right)
+                            (quicksort ids dists left (1- final-j)))
+                      ; else
+                      (begin (quicksort ids dists left (1- final-j))
+                            (quicksort ids dists final-i right))))))))) ; end quicksort impl.
     
     (error "Not implemented"))) ;continue update impl.
 
