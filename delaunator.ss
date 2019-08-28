@@ -135,7 +135,7 @@
 ;;;             for (let i = 0, d0 = -Infinity; i < n; i++) {
 ;;;                 const id = this._ids[i];
 ;;;                 if (this._dists[id] > d0) {
-;;;                     hull[j++] = id;
+;;;                     hull[j++] = id;           ;;; DON'T FORGET INC j ONLY ON LOOP ;;;
 ;;;                     d0 = this._dists[id];
 ;;;                 }
 ;;;             }
@@ -347,6 +347,7 @@
              (y (+ ay (* (- (* dx cl) (* ex bl)) d))))
         (values x y)))
 
+    ; DONE
     ;;; function quicksort(ids, dists, left, right) {
     ;;;     if (right - left <= 20) {
     ;;;         for (let i = left + 1; i <= right; i++) {
@@ -385,6 +386,7 @@
     ;;;         }
     ;;;     }
     ;;; }
+    ; TODO: Maybe Refactor with call/cc? See 'START call/cc here' below
     (def (quicksort ids dists left right)
       ; DONE
       ;;; function swap(arr, i, j) {
@@ -406,7 +408,7 @@
                 (let lpi ((j (1- i)))
                   (when (and (>= j left)
                              (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist))
-                    (u32vector-set! ids (1+ j) (u32vector-ref ids (1- j)))
+                    (u32vector-set! ids (1+ j) (u32vector-ref ids j))
                     (lpi (1- j)))
                   (u32vector-set! ids (1+ j) temp)))
               (lp (1+ i))))
@@ -428,9 +430,12 @@
             (let* ((temp (u32vector-ref ids i))
                    (temp-dist (f64vector-ref dists temp)))
 
+              ; Refactor? START call/cc HERE, and probs don't need to 
+              ; shaddow i/j, just use set!
               (let lp ((_i i)
                        (_j j))
 
+                ; TODO: CHECK THESE INCs & DECs!
                 (let ((final-i (do ((inner-i (1+ _i) (1+ inner-i)))
                                 ((< (f64vector-ref dists (u32vector-ref ids inner-i))
                                       temp-dist) inner-i)))
@@ -440,7 +445,7 @@
 
                   (unless (< final-j final-i)
                     (swap ids final-i final-j)
-                    (lp temp temp-dist final-i final-j))
+                    (lp final-i final-j))
 
                   (u32vector-set! ids (1+ left) (u32vector-ref ids final-j))
                   (u32vector-set! ids final-j temp)
@@ -480,7 +485,7 @@
         hs))))
 
 
-;
+; DONE
 ;;;     _legalize(a) {
 ;;;         const {_triangles: triangles, _halfedges: halfedges, coords} = this;
 ;;; 
@@ -511,7 +516,7 @@
 ;;; 
 ;;;             if (b === -1) { // convex hull edge
 ;;;                 if (i === 0) break;
-;;;                 a = EDGE_STACK[--i];
+;;;                 a = EDGE_STACK[--i];    ;;; DEC i BEFORE INDEX ;;;
 ;;;                 continue;
 ;;;             }
 ;;; 
@@ -559,7 +564,7 @@
 ;;;                 }
 ;;;             } else {
 ;;;                 if (i === 0) break;
-;;;                 a = EDGE_STACK[--i];
+;;;                 a = EDGE_STACK[--i];     ;;; DEC i BEFORE INDEX ;;;
 ;;;             }
 ;;;         }
 ;;; 
@@ -567,6 +572,7 @@
 ;;;     }
 (defmethod {_legalize Delaunator}
   (lambda (self a)
+    ; DONE
     ;;; function inCircle(ax, ay, bx, by, cx, cy, px, py) {
     ;;;     const dx = ax - px;
     ;;;     const dy = ay - py;
@@ -583,8 +589,109 @@
     ;;;            dy * (ex * cp - bp * fx) +
     ;;;            ap * (ex * fy - ey * fx) < 0;
     ;;; }
-    ; (def (in-circle ax ay bx by cx cy px py) ...)
-    (error "Not implemented")))
+    (def (in-circle ax ay bx by cx cy px py)
+      (let* ((dx (- ax px))
+             (dy (- ay py))
+             (ex (- bx px))
+             (ey (- by py))
+             (fx (- cx px))
+             (fy (- cy py))
+             (ap (+ (* dx dx) (* dy dy)))
+             (bp (+ (* ex ex) (* ey ey)))
+             (cp (+ (* fx fx) (* fy fy))))
+        (< ((+ (- (* dx (- (* ey cp) (* bp fy)))
+                  (* dy (- (* ex cp) (* bp fx))))
+                  (* ap (- (* ex fy) (* ey fx)))))
+           0)))
+    
+    (let ((triangles (@ self _triangles))
+          (halfedges (@ self _halfedges))
+          (coords (@ self coords))
+          (i 0)
+          (ar 0))
+
+      (call/cc
+        (lambda (break)
+
+          (let lp ()
+            (let ((b (s32vector-ref halfedges a))
+                  (a0 (- a (modulo a 3))))
+              
+              (set! ar (+ a0 (modulo (+ a 2) 3)))
+              
+              (when (= b -1) ; convex hull edge
+                (if (= i 0) (break))
+                (set! i (1- i))
+                (set! a (u32vector-ref EDGE_STACK i))
+                (lp))
+              
+              (let* ((b0 (- b (modulo b 3)))
+                     (al (+ a0 (modulo (+ a 1) 3)))
+                     (bl (+ b0 (modulo (+ b 2) 3)))
+                     (p0 (u32vector-ref triangles ar))
+                     (pr (u32vector-ref triangles a))
+                     (pl (u32vector-ref triangles al))
+                     (p1 (u32vector-ref triangles bl))
+                     (illegal (in-circle
+                                (f64vector-ref coords (* 2 p0)) (f64vector-ref coords (1+ (* 2 p0)))    ; ax ay
+                                (f64vector-ref coords (* 2 pr)) (f64vector-ref coords (1+ (* 2 pr)))    ; bx by
+                                (f64vector-ref coords (* 2 pl)) (f64vector-ref coords (1+ (* 2 pl)))    ; cx cy
+                                (f64vector-ref coords (* 2 p1)) (f64vector-ref coords (1+ (* 2 p1)))))) ; px py
+                
+                (if illegal
+                  ; then
+                  (begin
+                    (u32vector-set! triangles a p1)
+                    (u32vector-set! triangles b p0)
+
+                    (let ((hbl (s32vector-ref halfedges bl))
+                          (br (+ b0 (modulo (1+ b) 3))))
+
+                      (when (= hbl -1) ; edge swapped on other side of hull (rare) -fix halfedge reference
+
+                        (call/cc
+                          (lambda (done)
+
+                            ; (do ((e (@ self _hull-start) (u32vector-ref (@ self _hull-prev) e)))
+                            ;         ((not (= e (@ self _hull-start))))
+                            ;   (when (= (u32vector-ref (@ self _hull-tri) e) bl)
+                            ;     (u32vector-set! (@ self _hull-tri) e a)
+                            ;     ; TODO: break out of this do :/
+                            ;     ))
+                            ; let looping version of above do?
+                            (let lpi ((e (@ self _hull-start)))
+                              (when (= (u32vector-ref (@ self _hull-tri) e) bl)
+                                (u32vector-set! (@ self _hull-tri) e a)
+                                (done)
+                              (set! e (u32vector-ref (@ self _hull-prev) e)))
+                              (unless (= e (@ self _hull-start))
+                                (lpi e)))
+
+                          )
+                        )
+                      )
+
+                      {_link self a hbl}
+                      {_link self b (s32vector-ref halfedges ar)}
+                      {_link self ar bl}
+
+                      (when (< i (u32vector-length EDGE_STACK))
+                        ; "Don't worry about hitting the cap: it can only happen on extremely degenerate input."
+                        (u32vector-set! EDGE_STACK i br)
+                        (set! i (1+ i)))))
+                  ; else
+                  (begin
+                    (if (= i 0) (break))
+                    (set! i (1- i))
+                    (set! a (u32vector-ref EDGE_STACK i))))
+                (lp)))) ; end let lp
+
+        ) ;end lambda called by call/cc
+      ) ;end call/cc
+
+      ar ; return ar!
+    )
+  )) ; end _legalize lambda/methos
 
 
 ; DONE
@@ -632,7 +739,7 @@
 
 ; DONE
 ; MAYBE: support taking vector or list?
-(def (delaunator/from points
+(def (delaunator/from points ; vector of pairs
                       get/x: (get/x car)
                       get/y: (get/y cadr))
   (let* ((n (vector-length points))
