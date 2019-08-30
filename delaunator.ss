@@ -431,7 +431,7 @@
                    (temp-dist (f64vector-ref dists temp)))
 
               ; Refactor? START call/cc HERE, and probs don't need to 
-              ; shaddow i/j, just use set!
+              ; shaddow i/j, just use set! LOL, OBOB land..
               (let lp ((_i i)
                        (_j j))
 
@@ -457,8 +457,98 @@
                       ; else
                       (begin (quicksort ids dists left (1- final-j))
                             (quicksort ids dists final-i right))))))))) ; end quicksort impl.
-    
-    (error "Not implemented"))) ;continue update impl.
+
+    ; update implementation:
+    (call/cc
+      (lambda (escape)
+
+        (let ((coords    (@ self coords))
+              (hull-prev (@ self _hull-prev))
+              (hull-next (@ self _hull-next))
+              (hull-tri  (@ self _hull-tri))
+              (hull-hash (@ self _hull-hash))
+              (n (arithmetic-shift (f64vector-length (@ self coords)) -1))
+              (min-X +inf.0)
+              (min-Y +inf.0)
+              (max-X -inf.0)
+              (max-Y -inf.0))
+
+          ; Find min/max bounds of input coords
+          (do-while ((i 0 (1+ i)))
+                    ((< i n))
+            (let ((x (f64vector-ref coords (* 2 i)))
+                  (y (f64vector-ref coords (1+ (* 2 i)))))
+              (if (< x min-X) (set! min-X x))
+              (if (< y min-Y) (set! min-Y y))
+              (if (> x max-X) (set! max-X x))
+              (if (> Y max-Y) (set! max-Y y))
+              (u32vector-set! (@ self _ids) i i))) ; Also init _ids
+
+          (let ((cx (/ (+ min-X max-X) 2))
+                (cy (/ (+ min-Y max-Y) 2))
+                (min-dist +inf.0)
+                (i0 0)
+                (i1 0)
+                (i2 0))
+
+            ; Pick a seed point close to the center
+            (do-while ((i 0 (1+ i)))
+                      ((< i n))
+              (let (d (dist cx cy (f64vector-ref coords (* 2 i)) (f64vector-ref coords (1+ (* 2 i)))))
+                (when (< d min-dist)
+                  (set! i0 i)
+                  (set! min-dist d))))
+
+            (let ((i0x (f64vector-ref coords (* 2 i0)))
+                  (i0y (f64vector-ref coords (1+ (* 2 i0)))))
+              (set! min-dist +inf.0) ; reset min-dist measure
+
+              ; Find the point closest to the seed i0
+              (do-while ((i 0 (1+ i)))
+                        ((< i n))
+                (unless (= i i0)
+                  (let (d (dist i0x i0y (f64vector-ref coords (* 2 i)) (f64vector-ref coords (1+ (* 2 i)))))
+                    (when (and (< d min-dist)
+                              (> d 0))
+                      (set! i1 i)
+                      (set! min-dist d)))))
+
+              (let ((i1x (f64vector-ref coords (* 2 i1)))
+                    (i1y (f64vector-ref coords (1+ (* 2 i1))))
+                    (min-radius +inf.0))
+
+                ; Find the 3rd point which forms the smallest circumcircle with the first two
+                (do-while ((i 0 (1+ i)))
+                          ((< i n))
+                  (unless (or (= i i0) (= i i1))
+                    (let (r (circumradius i0x i0y i1x i1y (f64vector-ref coords (* 2 i)) (f64vector-ref coords (1+ (* 2 i)))))
+                      (when (< r min-radius)
+                        (set! i2 i)
+                        (set! min-radius r)))))
+
+                (let ((i2x (f64vector-ref coords (* 2 i2)))
+                      (i2y (f64vector-ref coords (1+ (* 2 i2)))))
+
+                  (when (= min-radius +inf.0)
+                    ; order collinear points by dx (or dy if all are identical)
+                    ; and return the list as a hull
+                    (do-while ((i 0 (1+ i)))
+                              ((< i n))
+                      (f64vector-set! (@ self _dists) i ????)
+                    )
+                  )
+
+                )
+              )
+            )
+          )
+        )
+
+    )) ; end call/cc / lambda
+
+
+  )
+)
 
 
 ; DONE
@@ -467,6 +557,7 @@
 ;;;     }
 (defmethod {_hash-key Delaunator}
   (lambda (self x y)
+    ; DONE
     ;;; // monotonically increases with real angle, but doesn't need expensive trigonometry
     ;;; function pseudoAngle(dx, dy) {
     ;;;     const p = dx / (Math.abs(dx) + Math.abs(dy));
