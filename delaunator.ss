@@ -43,6 +43,7 @@
            (max-triangles (max (- (* 2 n) 5) 0))
            (hash-size (exact (ceiling (sqrt n)))))
       (set! (@ self coords) coordinates)
+      (set! (@ self triangles-len) 0)
       ; Vectors that will store the triangulation graph
       (set! (@ self _triangles) (make-u32vector (* max-triangles 3)))
       (set! (@ self _halfedges) (make-s32vector (* max-triangles 3)))
@@ -559,9 +560,55 @@
                       (escape))) ; End special case early escape (2 coords?)
 
                   ; Swap the order of the seed points for counter-clockwise orientation
-                  ....
+                  (when (orient i0x i0y i1x i1y i2x i2y)
+                    (let ((i i1)
+                          (x i1x)
+                          (y i1y))
+                      (set! i1 i2)
+                      (set! i1x i2x)
+                      (set! i1y i2y)
+                      (set! i2 i)
+                      (set! i2x x)
+                      (set! i2y y)))
+                  
+                  (let-values (((center-x center-y) (circumcenter i0x i0y i1x i1y i2x i2y)))
+                    (set! (@ self _cx) center-x)
+                    (set! (@ self _cy) center-y)
+                    (do-while ((i 0 (1+ i)))
+                              ((< i n))
+                      (f64vector-set! (@ self _dists) i (dist (f64vector-ref coords (* 2 i)) (f64vector-ref coords (1+ (* 2 i))) center-x center-y))))
+
+                  ; Sort the points by distance from the seed triangle circumcenter
+                  (quicksort (@ self _ids) (@ self _dists) 0 (1- n))
+
+                  ; Set up the seed triangle as the starting hull
+                  (set! (@ self _hull-start) i0)
+
+                  (let (hull-size 3)
+                  
+                    (u32vector-set! hull-next i0 i1)
+                    (u32vector-set! hull-prev i2 i1)
+                    (u32vector-set! hull-next i1 i2)
+                    (u32vector-set! hull-prev i0 i2)
+                    (u32vector-set! hull-next i2 i0)
+                    (u32vector-set! hull-prev i1 i0)
+
+                    (u32vector-set! hull-tri i0 0)
+                    (u32vector-set! hull-tri i1 1)
+                    (u32vector-set! hull-tri i2 2)
+
+                    ;(s32vector-fill! hull-hash -1) ; Already filled at :init!
+                    (s32vector-set! hull-hash {_hash-key self i0x i0y} i0)
+                    (s32vector-set! hull-hash {_hash-key self i1x i1y} i1)
+                    (s32vector-set! hull-hash {_hash-key self i2x i2y} i2)
+
+                    ;(set! (@ self triangles-len) 0) ; Already set at :init!
+                    {_add-triangle self i0 i1 i2 -1 -1 -1}
+
+                    .... big for loop ....
 
 
+                  )
 
                 )
               )
