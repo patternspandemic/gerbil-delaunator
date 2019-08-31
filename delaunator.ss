@@ -534,9 +534,34 @@
                     ; and return the list as a hull
                     (do-while ((i 0 (1+ i)))
                               ((< i n))
-                      (f64vector-set! (@ self _dists) i ????)
-                    )
-                  )
+                      (let* ((c0 (f64vector-ref coords 0))
+                             (c1 (f64vector-ref coords 1))
+                             (dx (- (f64vector-ref coords (* 2 i)) c0))
+                             (dy (- (f64vector-ref coords (1+ (* 2 i))) c1)))
+                        (f64vector-set! (@ self _dists) i (if (zero? dx) dy dx))))
+                    (quicksort (@ self _ids) (@ self _dists) 0 (1- n))
+
+                    (let ((temp-hull (make-u32vector n))
+                          (j 0)
+                          (d0 -inf.0))
+
+                      (do-while ((i 0 (1+ i)))
+                                ((< i n))
+                        (let* (id (u32vector-ref (@ self _ids) i))
+                              (ref-dists-id (f64vector-ref (@ self _dists) id))
+                          (when (> ref-dists-id d0)
+                            (u32vector-set! temp-hull j id)
+                            (set! j (1+ j))
+                            (set! d0 ref-dists-id))))
+                      (set! (@ self hull) (subu32vector temp-hull 0 j))
+                      (set! (@ self triangles) (make-u32vector 0))
+                      (set! (@ self halfedges) (make-u32vector 0))
+                      (escape))) ; End special case early escape (2 coords?)
+
+                  ; Swap the order of the seed points for counter-clockwise orientation
+                  ....
+
+
 
                 )
               )
