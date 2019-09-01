@@ -584,28 +584,67 @@
                   ; Set up the seed triangle as the starting hull
                   (set! (@ self _hull-start) i0)
 
-                  (let (hull-size 3)
-                  
-                    (u32vector-set! hull-next i0 i1)
-                    (u32vector-set! hull-prev i2 i1)
-                    (u32vector-set! hull-next i1 i2)
-                    (u32vector-set! hull-prev i0 i2)
-                    (u32vector-set! hull-next i2 i0)
-                    (u32vector-set! hull-prev i1 i0)
+                  (u32vector-set! hull-next i0 i1)
+                  (u32vector-set! hull-prev i2 i1)
+                  (u32vector-set! hull-next i1 i2)
+                  (u32vector-set! hull-prev i0 i2)
+                  (u32vector-set! hull-next i2 i0)
+                  (u32vector-set! hull-prev i1 i0)
 
-                    (u32vector-set! hull-tri i0 0)
-                    (u32vector-set! hull-tri i1 1)
-                    (u32vector-set! hull-tri i2 2)
+                  (u32vector-set! hull-tri i0 0)
+                  (u32vector-set! hull-tri i1 1)
+                  (u32vector-set! hull-tri i2 2)
 
-                    ;(s32vector-fill! hull-hash -1) ; Already filled at :init!
-                    (s32vector-set! hull-hash {_hash-key self i0x i0y} i0)
-                    (s32vector-set! hull-hash {_hash-key self i1x i1y} i1)
-                    (s32vector-set! hull-hash {_hash-key self i2x i2y} i2)
+                  ;(s32vector-fill! hull-hash -1) ; Already filled at :init!
+                  (s32vector-set! hull-hash {_hash-key self i0x i0y} i0)
+                  (s32vector-set! hull-hash {_hash-key self i1x i1y} i1)
+                  (s32vector-set! hull-hash {_hash-key self i2x i2y} i2)
 
-                    ;(set! (@ self triangles-len) 0) ; Already set at :init!
-                    {_add-triangle self i0 i1 i2 -1 -1 -1}
+                  ;(set! (@ self triangles-len) 0) ; Already set at :init!
+                  {_add-triangle self i0 i1 i2 -1 -1 -1}
 
-                    .... big for loop ....
+                  (let ((hull-size 3)
+                        (xp +inf.0)
+                        (yp +inf.0))
+
+                    ; The main update loop...
+                    (let lp ((k 0))
+                      (when (< k (u32vector-length (@ self _ids)))
+                        (let* ((i (u32vector-ref (@ self _ids) k))
+                               (x (f64vector-ref coords (* 2 i)))
+                               (y (f64vector-ref coords (1+ (* 2 i)))))
+                        
+                          ; Skip near-duplicate points
+                          (if (and (> k 0)
+                                   (<= (abs (- x xp)) EPSILON)
+                                   (<= (abs (- y yp)) EPSILON))
+                            (lp (1+ k))) ; Continue
+                          
+                          (set! xp x)
+                          (set! yp y)
+
+                          ; Skip seed triangle points
+                          (if (or (= i i0) (= i i1) (= i i2))
+                            (lp (1+ k))) ; Continue
+                          
+                          ; Find a visible edge on the convex hull using edge hash
+                          (let ((start 0)
+                                (key {_hash-key self x y}))
+                            (let lpi ((j 0))
+                              (when (< j (@ self _hash-size))
+                                (set! start (s32vector-ref hull-hash (modulo (+ key j) (@ self _hash-size))))
+                                (unless (and (not (= start -1))
+                                             (not (= start (u32vector-ref hull-next start))))
+                                  (lpi (1+ j)))))
+                            
+                            (set! start (u32vector-ref hull-prev start))
+                            
+                          )
+
+                        )
+
+                      )
+                    )
 
 
                   )
