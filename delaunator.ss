@@ -482,7 +482,7 @@
               (if (< x min-X) (set! min-X x))
               (if (< y min-Y) (set! min-Y y))
               (if (> x max-X) (set! max-X x))
-              (if (> Y max-Y) (set! max-Y y))
+              (if (> y max-Y) (set! max-Y y))
               (u32vector-set! (@ self _ids) i i))) ; Also init _ids
 
           (let ((cx (/ (+ min-X max-X) 2))
@@ -548,8 +548,8 @@
 
                       (do-while ((i 0 (1+ i)))
                                 ((< i n))
-                        (let* (id (u32vector-ref (@ self _ids) i))
-                              (ref-dists-id (f64vector-ref (@ self _dists) id))
+                        (let* ((id (u32vector-ref (@ self _ids) i))
+                               (ref-dists-id (f64vector-ref (@ self _dists) id)))
                           (when (> ref-dists-id d0)
                             (u32vector-set! temp-hull j id)
                             (set! j (1+ j))
@@ -610,39 +610,83 @@
                     ; The main update loop...
                     (let lp ((k 0))
                       (when (< k (u32vector-length (@ self _ids)))
-                        (let* ((i (u32vector-ref (@ self _ids) k))
-                               (x (f64vector-ref coords (* 2 i)))
-                               (y (f64vector-ref coords (1+ (* 2 i)))))
+                        (call/cc (lambda (continue)
                         
-                          ; Skip near-duplicate points
-                          (if (and (> k 0)
-                                   (<= (abs (- x xp)) EPSILON)
-                                   (<= (abs (- y yp)) EPSILON))
-                            (lp (1+ k))) ; Continue
+                          (let* ((i (u32vector-ref (@ self _ids) k))
+                                 (x (f64vector-ref coords (* 2 i)))
+                                 (y (f64vector-ref coords (1+ (* 2 i)))))
                           
-                          (set! xp x)
-                          (set! yp y)
+                            ; Skip near-duplicate points
+                            (if (and (> k 0)
+                                    (<= (abs (- x xp)) EPSILON)
+                                    (<= (abs (- y yp)) EPSILON))
+                              (continue))
+                            
+                            (set! xp x)
+                            (set! yp y)
 
-                          ; Skip seed triangle points
-                          (if (or (= i i0) (= i i1) (= i i2))
-                            (lp (1+ k))) ; Continue
-                          
-                          ; Find a visible edge on the convex hull using edge hash
-                          (let ((start 0)
-                                (key {_hash-key self x y}))
-                            (let lpi ((j 0))
-                              (when (< j (@ self _hash-size))
-                                (set! start (s32vector-ref hull-hash (modulo (+ key j) (@ self _hash-size))))
-                                (unless (and (not (= start -1))
-                                             (not (= start (u32vector-ref hull-next start))))
-                                  (lpi (1+ j)))))
+                            ; Skip seed triangle points
+                            (if (or (= i i0) (= i i1) (= i i2))
+                              (continue))
                             
-                            (set! start (u32vector-ref hull-prev start))
-                            
+                            ; Find a visible edge on the convex hull using edge hash
+                            (let ((start 0)
+                                  (key {_hash-key self x y}))
+                              (let lpi ((j 0))
+                                (when (< j (@ self _hash-size))
+                                  (set! start (s32vector-ref hull-hash (modulo (+ key j) (@ self _hash-size))))
+                                  (unless (and (not (= start -1))
+                                               (not (= start (u32vector-ref hull-next start))))
+                                    (lpi (1+ j)))))
+
+                              (set! start (u32vector-ref hull-prev start))
+
+                              (let* ((e start)
+                                     (q (u32vector-ref hull-next e)))
+                                (call/cc (lambda (break)
+                                  (let lpi ()
+                                    (let (orient-result (orient x y
+                                                                (f64vector-ref coords (* 2 e)) (f64vector-ref coords (1+ (* 2 e)))
+                                                                (f64vector-ref coords (* 2 q)) (f64vector-ref coords (1+ (* 2 q)))))
+                                      (when (not orient-result)
+                                        (set! e q)
+                                        (when (= e start)
+                                          (set! e -1)
+                                          (break))
+                                        (set! q (u32vector-ref hull-next e))
+                                        (lpi))))))
+
+                                ; Likely a near-duplicate point, skip it
+                                (if (= e -1) (continue))
+
+                                ; Add the first triangle from the point
+                                (let (t {_add-triangle self e i (u32vector-ref hull-next e) -1 -1 (u32vector-ref hull-tri e)})
+
+                                  ; Recursively flip triangles from the point until they satisfy the Delaunay condition
+                                  (u32vector-set! hull-tri i {_legalize self (+ t 2)})
+                                  (u32vector-set! hull-tri e t) ; Keep track of boundary triangles on the hull
+                                  (set! hull-size (1+ hull-size))
+
+                                  ; Walk forward through the hull, adding more triangles and flipping recursively
+                                  ....
+                                
+                                
+                                )
+                              )
+                              
+
+                            )
+
                           )
 
-                        )
+                        )) ; end continuing call/cc
 
+
+                        
+
+
+
+                        (lp (1+ k))
                       )
                     )
 
