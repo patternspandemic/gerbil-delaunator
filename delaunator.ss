@@ -13,7 +13,7 @@
 (def EPSILON (expt 2 -52))
 (def EDGE_STACK (make-u32vector 512))
 
-
+; TODO: Add slots for computed bounds
 (defclass Delaunator
   (coords           ; initial flattened coords
    triangles        ; trimmed version of _triangles
@@ -43,7 +43,7 @@
            (max-triangles (max (- (* 2 n) 5) 0))
            (hash-size (exact (ceiling (sqrt n)))))
       (set! (@ self coords) coordinates)
-      (set! (@ self triangles-len) 0)
+      (set! (@ self triangles-length) 0)
       ; Vectors that will store the triangulation graph
       (set! (@ self _triangles) (make-u32vector (* max-triangles 3)))
       (set! (@ self _halfedges) (make-s32vector (* max-triangles 3)))
@@ -570,7 +570,7 @@
                       (set! i2 i)
                       (set! i2x x)
                       (set! i2y y)))
-                  
+
                   (let-values (((center-x center-y) (circumcenter i0x i0y i1x i1y i2x i2y)))
                     (set! (@ self _cx) center-x)
                     (set! (@ self _cy) center-y)
@@ -600,7 +600,7 @@
                   (s32vector-set! hull-hash {_hash-key self i1x i1y} i1)
                   (s32vector-set! hull-hash {_hash-key self i2x i2y} i2)
 
-                  ;(set! (@ self triangles-len) 0) ; Already set at :init!
+                  ;(set! (@ self triangles-length) 0) ; Already set at :init!
                   {_add-triangle self i0 i1 i2 -1 -1 -1}
 
                   (let ((hull-size 3)
@@ -615,20 +615,20 @@
                           (let* ((i (u32vector-ref (@ self _ids) k))
                                  (x (f64vector-ref coords (* 2 i)))
                                  (y (f64vector-ref coords (1+ (* 2 i)))))
-                          
+
                             ; Skip near-duplicate points
                             (if (and (> k 0)
                                     (<= (abs (- x xp)) EPSILON)
                                     (<= (abs (- y yp)) EPSILON))
                               (continue))
-                            
+
                             (set! xp x)
                             (set! yp y)
 
                             ; Skip seed triangle points
                             (if (or (= i i0) (= i i1) (= i i2))
                               (continue))
-                            
+
                             ; Find a visible edge on the convex hull using edge hash
                             (let ((start 0)
                                   (key {_hash-key self x y}))
@@ -668,42 +668,70 @@
                                   (set! hull-size (1+ hull-size))
 
                                   ; Walk forward through the hull, adding more triangles and flipping recursively
-                                  ....
-                                
-                                
-                                )
-                              )
-                              
+                                  (let (n (u32vector-ref hull-next e))
+                                    (set! q (u32vector-ref hull-next n))
+                                    (let lpi ()
+                                      (let (orient-result (orient x y
+                                                            (f64vector-ref coords (* 2 n)) (f64vector-ref coords (1+ (* 2 n)))
+                                                            (f64vector-ref coords (* 2 q)) (f64vector-ref coords (1+ (* 2 q)))))
+                                        (when orient-result
+                                          (set! t {_add-triangle self n i q (u32vector-ref hull-tri i) -1 (u32vector-ref hull-tri n)})
+                                          (u32vector-set! hull-tri i {_legalize self (+ t 2)})
+                                          (u32vector-set! hull-next n n) ; Mark as removed
+                                          (set! hull-size (1- hull-size))
+                                          (set! n q)
+                                          (set! q (u32vector-ref hull-next n))
+                                          (lpi))))
 
-                            )
+                                    ; Walk backward from the other side, adding more triangles and flipping
+                                    (when (= e start)
+                                      (set! q (u32vector-ref hull-prev e))
+                                      (let lpi ()
+                                        (let (orient-result (orient x y
+                                                              (f64vector-ref coords (* 2 q)) (f64vector-ref coords (1+ (* 2 q)))
+                                                              (f64vector-ref coords (* 2 e)) (f64vector-ref coords (1+ (* 2 e)))))
+                                          (when orient-result
+                                            (set! t {_add-triangle self q i e -1 (u32vector-ref hull-tri e) (u32vector-ref hull-tri q)})
+                                            {_legalize self (+ t 2)}
+                                            (u32vector-set! hull-tri q t)
+                                            (u32vector-set! hull-next e e) ; Mark as removed
+                                            (set! hull-size (1- hull-size))
+                                            (set! e q)
+                                            (set! q (u32vector-ref hull-prev e))
+                                            (lpi)))))
 
-                          )
+                                    ; Update the hull indices
+                                    (set! (@ self _hull-start) e)
+                                    (u32vector-set! hull-prev i e)
+                                    (u32vector-set! hull-next e i)
+                                    (u32vector-set! hull-prev n i)
+                                    (u32vector-set! hull-next i n)
 
-                        )) ; end continuing call/cc
+                                    ; Save the two new edges in the hash table
+                                    (s32vector-set! hull-hash {_hash-key self x y} i)
+                                    (s32vector-set! hull-hash {_hash-key self (f64vector-ref coords (* 2 e)) (f64vector-ref coords (1+ (* 2 e)))} e)
 
-
-                        
-
-
-
+                        ))))))) ; end continuing call/cc
                         (lp (1+ k))
-                      )
-                    )
+                    )) ; end main update loop
 
+                    (let ((hull      (@ self hull))
+                          (triangles (@ self triangles))
+                          (halfedges  (@ self halfedges))
+                          (triangles-length (@ self triangles-length)))
 
-                  )
+                      (set! hull (make-u32vector hull-size))
+                      (do-while ((i 0 (1+ i))
+                                 (e (@ self _hull-start) (u32vector-ref hull-next e)))
+                                ((< i hull-size))
+                        (u32vector-set! hull i e))
 
-                )
-              )
-            )
-          )
-        )
+                      ; Trim typed triangle mesh vectors
+                      (set! triangles (subu32vector (@ self _triangles) 0 triangles-length))
+                      (set! halfedges (subs32vector (@ self _halfedges) 0 triangles-length)))
 
-    )) ; end call/cc / lambda
-
-
-  )
-)
+    )))))))) ; end escaping call/cc
+)) ; end update method
 
 
 ; DONE
@@ -849,7 +877,7 @@
                   (* dy (- (* ex cp) (* bp fx))))
                   (* ap (- (* ex fy) (* ey fx)))))
            0)))
-    
+
     (let ((triangles (@ self _triangles))
           (halfedges (@ self _halfedges))
           (coords (@ self coords))
@@ -862,15 +890,15 @@
           (let lp ()
             (let ((b (s32vector-ref halfedges a))
                   (a0 (- a (modulo a 3))))
-              
+
               (set! ar (+ a0 (modulo (+ a 2) 3)))
-              
+
               (when (= b -1) ; convex hull edge
                 (if (= i 0) (break))
                 (set! i (1- i))
                 (set! a (u32vector-ref EDGE_STACK i))
                 (lp))
-              
+
               (let* ((b0 (- b (modulo b 3)))
                      (al (+ a0 (modulo (+ a 1) 3)))
                      (bl (+ b0 (modulo (+ b 2) 3)))
@@ -883,7 +911,7 @@
                                 (f64vector-ref coords (* 2 pr)) (f64vector-ref coords (1+ (* 2 pr)))    ; bx by
                                 (f64vector-ref coords (* 2 pl)) (f64vector-ref coords (1+ (* 2 pl)))    ; cx cy
                                 (f64vector-ref coords (* 2 p1)) (f64vector-ref coords (1+ (* 2 p1)))))) ; px py
-                
+
                 (if illegal
                   ; then
                   (begin
@@ -932,12 +960,10 @@
                     (set! a (u32vector-ref EDGE_STACK i))))
                 (lp)))) ; end let lp
 
-        ) ;end lambda called by call/cc
-      ) ;end call/cc
+      )) ; end breaking call/cc
 
       ar ; return ar!
-    )
-  )) ; end _legalize lambda/methos
+))) ; end _legalize method
 
 
 ; DONE
