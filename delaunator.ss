@@ -431,7 +431,7 @@
             (let* ((temp (u32vector-ref ids i))
                    (temp-dist (f64vector-ref dists temp)))
 
-              (call/cc (lambda (break)
+              (call/cc (lambda (esc-break)
                 (let lp ()
                   (let lpi ()
                     (set! i (1+ i))
@@ -441,7 +441,7 @@
                     (set! j (1- j))
                     (if (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist)
                         (lpi)))
-                  (if (< j i) (break))
+                  (if (< j i) (esc-break))
                   (swap ids i j)
                   (lp))
               )) ; end breaking call/cc
@@ -556,7 +556,7 @@
                             (set! d0 ref-dists-id))))
                       (set! (@ self hull) (subu32vector temp-hull 0 j))
                       (set! (@ self triangles) (make-u32vector 0))
-                      (set! (@ self halfedges) (make-u32vector 0))
+                      (set! (@ self halfedges) (make-s32vector 0))
                       (escape))) ; End special case early escape (2 coords?)
 
                   ; Swap the order of the seed points for counter-clockwise orientation
@@ -610,8 +610,8 @@
                     ; The main update loop...
                     (let lp ((k 0))
                       (when (< k (u32vector-length (@ self _ids)))
-                        (call/cc (lambda (continue)
-                        
+                        (call/cc (lambda (esc-continue)
+
                           (let* ((i (u32vector-ref (@ self _ids) k))
                                  (x (f64vector-ref coords (* 2 i)))
                                  (y (f64vector-ref coords (1+ (* 2 i)))))
@@ -620,14 +620,14 @@
                             (if (and (> k 0)
                                     (<= (abs (- x xp)) EPSILON)
                                     (<= (abs (- y yp)) EPSILON))
-                              (continue))
+                              (esc-continue))
 
                             (set! xp x)
                             (set! yp y)
 
                             ; Skip seed triangle points
                             (if (or (= i i0) (= i i1) (= i i2))
-                              (continue))
+                              (esc-continue))
 
                             ; Find a visible edge on the convex hull using edge hash
                             (let ((start 0)
@@ -643,7 +643,7 @@
 
                               (let* ((e start)
                                      (q (u32vector-ref hull-next e)))
-                                (call/cc (lambda (break)
+                                (call/cc (lambda (esc-break)
                                   (let lpi ()
                                     (let (orient-result (orient x y
                                                                 (f64vector-ref coords (* 2 e)) (f64vector-ref coords (1+ (* 2 e)))
@@ -652,12 +652,12 @@
                                         (set! e q)
                                         (when (= e start)
                                           (set! e -1)
-                                          (break))
+                                          (esc-break))
                                         (set! q (u32vector-ref hull-next e))
                                         (lpi))))))
 
                                 ; Likely a near-duplicate point, skip it
-                                (if (= e -1) (continue))
+                                (if (= e -1) (esc-continue))
 
                                 ; Add the first triangle from the point
                                 (let (t {_add-triangle self e i (u32vector-ref hull-next e) -1 -1 (u32vector-ref hull-tri e)})
@@ -715,20 +715,17 @@
                         (lp (1+ k))
                     )) ; end main update loop
 
-                    (let ((hull      (@ self hull))
-                          (triangles (@ self triangles))
-                          (halfedges  (@ self halfedges))
-                          (triangles-length (@ self triangles-length)))
+                    (let ((triangles-length (@ self triangles-length)))
 
-                      (set! hull (make-u32vector hull-size))
+                      (set! (@ self hull) (make-u32vector hull-size))
                       (do-while ((i 0 (1+ i))
                                  (e (@ self _hull-start) (u32vector-ref hull-next e)))
                                 ((< i hull-size))
-                        (u32vector-set! hull i e))
+                        (u32vector-set! (@ self hull) i e))
 
                       ; Trim typed triangle mesh vectors
-                      (set! triangles (subu32vector (@ self _triangles) 0 triangles-length))
-                      (set! halfedges (subs32vector (@ self _halfedges) 0 triangles-length)))
+                      (set! (@ self triangles) (subu32vector (@ self _triangles) 0 triangles-length))
+                      (set! (@ self halfedges) (subs32vector (@ self _halfedges) 0 triangles-length)))
 
     )))))))) ; end escaping call/cc
 )) ; end update method
@@ -885,7 +882,7 @@
           (ar 0))
 
       (call/cc
-        (lambda (break)
+        (lambda (esc-break)
 
           (let lp ()
             (let ((b (s32vector-ref halfedges a))
@@ -894,7 +891,7 @@
               (set! ar (+ a0 (modulo (+ a 2) 3)))
 
               (when (= b -1) ; convex hull edge
-                (if (= i 0) (break))
+                (if (= i 0) (esc-break))
                 (set! i (1- i))
                 (set! a (u32vector-ref EDGE_STACK i))
                 (lp))
@@ -955,7 +952,7 @@
                         (set! i (1+ i)))))
                   ; else
                   (begin
-                    (if (= i 0) (break))
+                    (if (= i 0) (esc-break))
                     (set! i (1- i))
                     (set! a (u32vector-ref EDGE_STACK i))))
                 (lp)))) ; end let lp
@@ -1019,8 +1016,8 @@
     (for ((p points)
           (k (in-range n)))
       (f64vector-set! coords (* 2 k) (inexact (get/x p)))
-      (f64vector-set! coords (1+ (* 2 k)) (inexact (get/y p)))
-    (make-Delaunator coords))))
+      (f64vector-set! coords (1+ (* 2 k)) (inexact (get/y p))))
+    (make-Delaunator coords)))
 
 ; MAYBE
 ; Procs to pull out to module level for possible reuse?
@@ -1029,3 +1026,7 @@
 ; - dist
 ; - circumradius
 ; - circumcenter
+
+; > (import :std/text/json "delaunator.ss")
+; > (def uvec (list->vector (with-input-from-file "ukraine.json" (lambda () (read-json)))))
+; > (def d (delaunator/from uvec))
