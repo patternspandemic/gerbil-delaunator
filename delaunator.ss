@@ -284,12 +284,42 @@
             (dy (- ay by)))
         (+ (* dx dx) (* dy dy))))
 
-    ; DONE
+    ; DONE - OLD IMPL.
     ;;; function orient(px, py, qx, qy, rx, ry) {
     ;;;     return (qy - py) * (rx - qx) - (qx - px) * (ry - qy) < 0;
     ;;; }
-    (def (orient px py qx qy rx ry)
-      (< (- (* (- qy py) (- rx qx)) (* (- qx px) (- ry qy)))
+    ; (def (orient px py qx qy rx ry)
+    ;   (< (- (* (- qy py) (- rx qx)) (* (- qx px) (- ry qy)))
+    ;      0))
+
+    ; DONE
+    ;;; // return 2d orientation sign if we're confident in it through J. Shewchuk's error bound check
+    ;;; function orientIfSure(px, py, rx, ry, qx, qy) {
+    ;;;     const l = (ry - py) * (qx - px);
+    ;;;     const r = (rx - px) * (qy - py);
+    ;;;     return Math.abs(l - r) >= 3.3306690738754716e-16 * Math.abs(l + r) ? l - r : 0;
+    ;;; }
+    ; Return 2d orientation sign if we're confident in it through J. Shewchuk's error bound check
+    (def (orient-if-sure px py rx ry qx qy)
+      (let ((l (* (- ry py) (- qx px)))
+            (r (* (- rx px) (- qy py))))
+        (if (>= (abs (- l r)) (* 3.3306690738754716e-16 (abs (+ l r))))
+            (- l r)
+            #f))) ;0)))
+
+    ;
+    ;;; // a more robust orientation test that's stable in a given triangle (to fix robustness issues)
+    ;;; function orient(rx, ry, qx, qy, px, py) {
+    ;;;     return (orientIfSure(px, py, rx, ry, qx, qy) ||
+    ;;;             orientIfSure(rx, ry, qx, qy, px, py) ||
+    ;;;             orientIfSure(qx, qy, px, py, rx, ry)) < 0;
+    ;;; }
+    ; A more robust orientation test that's stable in a given triangle (to fix robustness issues)
+    (def (orient rx ry qx qy px py)
+      (< (or (orient-if-sure px py rx ry qx qy)
+             (orient-if-sure rx ry qx qy px py)
+             (orient-if-sure qx qy px py rx ry)
+             0)
          0))
 
     ; DONE
