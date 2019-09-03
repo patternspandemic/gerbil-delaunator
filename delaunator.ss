@@ -431,33 +431,33 @@
             (let* ((temp (u32vector-ref ids i))
                    (temp-dist (f64vector-ref dists temp)))
 
-              ; Refactor? START call/cc HERE, and probs don't need to 
-              ; shaddow i/j, just use set! LOL, OBOB land..
-              (let lp ((_i i)
-                       (_j j))
+              (call/cc (lambda (break)
+                (let lp ()
+                  (let lpi ()
+                    (set! i (1+ i))
+                    (if (< (f64vector-ref dists (u32vector-ref ids i)) temp-dist)
+                        (lpi)))
+                  (let lpi ()
+                    (set! j (1- j))
+                    (if (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist)
+                        (lpi)))
+                  (if (< j i) (break))
+                  (swap ids i j)
+                  (lp))
+              )) ; end breaking call/cc
 
-                ; TODO: CHECK THESE INCs & DECs!
-                (let ((final-i (do ((inner-i (1+ _i) (1+ inner-i)))
-                                ((< (f64vector-ref dists (u32vector-ref ids inner-i))
-                                      temp-dist) inner-i)))
-                      (final-j (do ((inner-j (1- _j) (1- inner-j)))
-                                ((> (f64vector-ref dists (u32vector-ref ids inner-j))
-                                      temp-dist) inner-j))))
+              (u32vector-set! ids (1+ left) (u32vector-ref ids j))
+              (u32vector-set! ids j temp)
 
-                  (unless (< final-j final-i)
-                    (swap ids final-i final-j)
-                    (lp final-i final-j))
+              (if (>= (- right (1+ i)) (- j left))
+                  ; then
+                  (begin (quicksort ids dists i right)
+                         (quicksort ids dists left (1- j)))
+                  ; else
+                  (begin (quicksort ids dists left (1- j))
+                         (quicksort ids dists i right)))))                            
 
-                  (u32vector-set! ids (1+ left) (u32vector-ref ids final-j))
-                  (u32vector-set! ids final-j temp)
-
-                  (if (>= (- right (1+ final-i)) (- final-j left))
-                      ; then
-                      (begin (quicksort ids dists final-i right)
-                            (quicksort ids dists left (1- final-j)))
-                      ; else
-                      (begin (quicksort ids dists left (1- final-j))
-                            (quicksort ids dists final-i right))))))))) ; end quicksort impl.
+    )) ; end quicksort impl.
 
     ; update implementation:
     (call/cc
@@ -873,9 +873,9 @@
              (ap (+ (* dx dx) (* dy dy)))
              (bp (+ (* ex ex) (* ey ey)))
              (cp (+ (* fx fx) (* fy fy))))
-        (< ((+ (- (* dx (- (* ey cp) (* bp fy)))
-                  (* dy (- (* ex cp) (* bp fx))))
-                  (* ap (- (* ex fy) (* ey fx)))))
+        (< (+ (- (* dx (- (* ey cp) (* bp fy)))
+                 (* dy (- (* ex cp) (* bp fx))))
+                 (* ap (- (* ex fy) (* ey fx))))
            0)))
 
     (let ((triangles (@ self _triangles))
@@ -1018,9 +1018,9 @@
          (coords (make-f64vector (* n 2))))
     (for ((p points)
           (k (in-range n)))
-      (f64vector-set! coords (* 2 k) (get/x p))
-      (f64vector-set! coords (1+ (* 2 k)) (get/y p)))
-    (make-Delaunator coords)))
+      (f64vector-set! coords (* 2 k) (inexact (get/x p)))
+      (f64vector-set! coords (1+ (* 2 k)) (inexact (get/y p)))
+    (make-Delaunator coords))))
 
 ; MAYBE
 ; Procs to pull out to module level for possible reuse?
