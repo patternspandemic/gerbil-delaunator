@@ -1,14 +1,22 @@
+; Up to date with mapbox/Delaunator at 35223e3182bc1c87d7d6d03ef56b0e1dd8e3eef9 Aug. 30, 2019
+
 (import :std/iter
         :gerbil/gambit/bits
         :gerbil/gambit/exact
         :gerbil/gambit/hvectors)
 
 (export
-  delaunator/from
   Delaunator-coords
   Delaunator-triangles
   Delaunator-halfedges
-  Delaunator-hull)
+  Delaunator-hull
+  delaunator/from
+  edges-of-triangle
+  triangle-of-edge
+  next-halfedge
+  prev-halfedge
+  points-of-triangle
+  triangles-adjacent-to-triangle)
 
 (def EPSILON (expt 2 -52))
 (def EDGE_STACK (make-u32vector 512))
@@ -1049,6 +1057,72 @@
       (f64vector-set! coords (1+ (* 2 k)) (inexact (get/y p))))
     (make-Delaunator coords)))
 
+
+;;; Helper procs below are not written for performance :/
+
+; triangle-id -> List-of-halfedge-ids
+; The halfedges of a triangle.
+(def (edges-of-triangle t)
+  (list (* 3 t) (1+ (* 3 t)) (+ 2 (* 3 t))))
+
+; halfedge-id -> triangle-id
+; The triangle for which halfedge e is a part. (also the id of the 1st point?)
+(def (triangle-of-edge e)
+  (floor (/ e 3)))
+
+; halfedge-id -> halfedge-id
+; The next halfedge of the triangle for which halfedge e is a part.
+(def (next-halfedge e)
+  (if (= (modulo e 3) 2)
+      (- e 2)
+      (1+ e)))
+
+; halfedge-id -> halfedge-id
+; The previous halfedge of the triangle for which halfedge e is a part.
+(def (prev-halfedge e)
+  (if (= (modulo e 3) 0)
+      (+ e 2)
+      (1- e)))
+
+; Delaunator triangle-id -> List-of-point-ids
+; The points composing triangle t.
+(defmethod {points-of-triangle Delaunator}
+  (lambda (self t)
+    (map (lambda (e) (u32vector-ref (@ self triangles) e))
+         (edges-of-triangle t))))
+
+; Delaunator triangle-id -> List-of-triangle-ids
+; The triangles adjacent to triangle t.
+(defmethod {triangles-adjacent-to-triangle Delaunator}
+  (lambda (self t)
+    (filter-map (lambda (e)
+      (let (opposite (s32vector-ref (@ self halfedges) e))
+        (if (>= opposite 0)
+            (triangle-of-edge opposite)
+            #f)))
+      (edges-of-triangle t))))
+
+; TODO: - Generator/Iterator for each-triangle-edge, attach :iter to class too?
+;       - companion proc which takes a callback instead?
+;;; function forEachTriangleEdge(points, delaunay, callback) {
+;;;     for (let e = 0; e < delaunay.triangles.length; e++) {
+;;;         if (e > delaunay.halfedges[e]) {
+;;;             const p = points[delaunay.triangles[e]];
+;;;             const q = points[delaunay.triangles[nextHalfedge(e)]];
+;;;             callback(e, p, q);
+;;;         }
+;;;     }
+;;; }
+
+; TODO: - Generator/Iterator for each-triangle, attach :iter to class too?
+;       - companion proc which takes a callback instead?
+;;; function forEachTriangle(points, delaunay, callback) {
+;;;     for (let t = 0; t < delaunay.triangles.length / 3; t++) {
+;;;         callback(t, pointsOfTriangle(delaunay, t).map(p => points[p]));
+;;;     }
+;;; }
+
+
 ; MAYBE
 ; Procs to pull out to module level for possible reuse?
 ; - in-circle
@@ -1058,5 +1132,5 @@
 ; - circumcenter
 
 ; > (import :std/text/json "delaunator.ss")
-; > (def uvec (list->vector (with-input-from-file "ukraine.json" (lambda () (read-json)))))
+; > (def points (list->vector (with-input-from-file "ukraine.json" (lambda () (read-json)))))
 ; > (def d (delaunator/from uvec))
