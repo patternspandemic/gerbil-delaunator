@@ -1,4 +1,5 @@
 ; Up to date with mapbox/Delaunator at 35223e3182bc1c87d7d6d03ef56b0e1dd8e3eef9 Aug. 30, 2019
+; Some of these loops can may be able to be replaced with while/until.
 
 (import :std/iter
         :gerbil/gambit/bits
@@ -15,8 +16,9 @@
   triangle-of-edge
   next-halfedge
   prev-halfedge
-  points-of-triangle
-  triangles-adjacent-to-triangle)
+  ;points-of-triangle
+  ;triangles-adjacent-to-triangle
+  )
 
 (def EPSILON (expt 2 -52))
 (def EDGE_STACK (make-u32vector 512))
@@ -24,6 +26,10 @@
 ; TODO: Add slots for computed bounds
 (defclass Delaunator
   (coords           ; initial flattened coords
+   min-X            ; computed min x of coords
+   min-Y            ; computed min y of coords
+   max-X            ; computed max x of coords
+   max-Y            ; computed max y of coords
    triangles        ; trimmed version of _triangles
    halfedges        ; trimmed version of _halfedges
    hull             ; halfedges of the final convex hull
@@ -51,6 +57,10 @@
            (max-triangles (max (- (* 2 n) 5) 0))
            (hash-size (exact (ceiling (sqrt n)))))
       (set! (@ self coords) coordinates)
+      (set! (@ self min-X) +inf.0)
+      (set! (@ self min-Y) +inf.0)
+      (set! (@ self max-X) -inf.0)
+      (set! (@ self max-Y) -inf.0)
       (set! (@ self triangles-length) 0)
       ; Vectors that will store the triangulation graph
       (set! (@ self _triangles) (make-u32vector (* max-triangles 3)))
@@ -506,25 +516,21 @@
               (hull-next (@ self _hull-next))
               (hull-tri  (@ self _hull-tri))
               (hull-hash (@ self _hull-hash))
-              (n (arithmetic-shift (f64vector-length (@ self coords)) -1))
-              (min-X +inf.0)
-              (min-Y +inf.0)
-              (max-X -inf.0)
-              (max-Y -inf.0))
+              (n (arithmetic-shift (f64vector-length (@ self coords)) -1)))
 
           ; Find min/max bounds of input coords
           (do-while ((i 0 (1+ i)))
                     ((< i n))
             (let ((x (f64vector-ref coords (* 2 i)))
                   (y (f64vector-ref coords (1+ (* 2 i)))))
-              (if (< x min-X) (set! min-X x))
-              (if (< y min-Y) (set! min-Y y))
-              (if (> x max-X) (set! max-X x))
-              (if (> y max-Y) (set! max-Y y))
+              (if (< x (@ self min-X)) (set! (@ self min-X) x))
+              (if (< y (@ self min-Y)) (set! (@ self min-Y) y))
+              (if (> x (@ self max-X)) (set! (@ self max-X) x))
+              (if (> y (@ self max-Y)) (set! (@ self max-Y) y))
               (u32vector-set! (@ self _ids) i i))) ; Also init _ids
 
-          (let ((cx (/ (+ min-X max-X) 2))
-                (cy (/ (+ min-Y max-Y) 2))
+          (let ((cx (/ (+ (@ self min-X) (@ self max-X)) 2))
+                (cy (/ (+ (@ self min-Y) (@ self max-Y)) 2))
                 (min-dist +inf.0)
                 (i0 0)
                 (i1 0)
@@ -1044,6 +1050,14 @@
       t))) ; return position of added triangle
 
 
+; Delaunator -> '#((min-X min-Y) (max-X max-Y))
+; A vector of two pairs describing the rectangular bounds of the triangulation.
+(defmethod {bounds Delaunator}
+  (lambda (self)
+    `#((,(@ self min-X) ,(@ self min-Y))
+       (,(@ self max-X) ,(@ self max-Y)))))
+
+
 ; DONE
 ; MAYBE: support taking vector or list?
 (def (delaunator/from points ; vector of pairs
@@ -1133,4 +1147,4 @@
 
 ; > (import :std/text/json "delaunator.ss")
 ; > (def points (list->vector (with-input-from-file "ukraine.json" (lambda () (read-json)))))
-; > (def d (delaunator/from uvec))
+; > (def d (delaunator/from points))
