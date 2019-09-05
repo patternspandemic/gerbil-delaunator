@@ -6,18 +6,23 @@
         :gerbil/gambit/exact
         :gerbil/gambit/hvectors)
 
+; TODO: Probably remove slot accessors and provide iterators for them.
 (export
   Delaunator-coords
   Delaunator-triangles
   Delaunator-halfedges
   Delaunator-hull
   delaunator/from
-  edges-of-triangle
-  triangle-of-edge
+  halfedge-ids-of-triangle
+  triangle-id-of-edge
   next-halfedge
   prev-halfedge
-  ;points-of-triangle
-  ;triangles-adjacent-to-triangle
+  ;point-ids-of-triangle
+  ;triangle-ids-adjacent-to-triangle
+  ;iter-triangle-edges
+  ;iter-triangles
+  ;iter-voronoi-edges
+  ;iter-voronoi-regions
   )
 
 (def EPSILON (expt 2 -52))
@@ -1075,48 +1080,49 @@
 ;;; Helper procs below are not written for performance :/
 
 ; triangle-id -> List-of-halfedge-ids
-; The halfedges of a triangle.
-(def (edges-of-triangle t)
+; The halfedge ids of a triangle with id `t`.
+(def (halfedge-ids-of-triangle t)
   (list (* 3 t) (1+ (* 3 t)) (+ 2 (* 3 t))))
 
 ; halfedge-id -> triangle-id
-; The triangle for which halfedge e is a part. (also the id of the 1st point?)
-(def (triangle-of-edge e)
+; The id of the triangle for which halfedge with id `e` is a part. (also the id of the 1st point?)
+(def (triangle-id-of-edge e)
   (floor (/ e 3)))
 
 ; halfedge-id -> halfedge-id
-; The next halfedge of the triangle for which halfedge e is a part.
+; The id of the next halfedge of the triangle for which halfedge with id `e` is a part.
 (def (next-halfedge e)
   (if (= (modulo e 3) 2)
       (- e 2)
       (1+ e)))
 
 ; halfedge-id -> halfedge-id
-; The previous halfedge of the triangle for which halfedge e is a part.
+; The id of the previous halfedge of the triangle for which halfedge with id `e` is a part.
 (def (prev-halfedge e)
   (if (= (modulo e 3) 0)
       (+ e 2)
       (1- e)))
 
 ; Delaunator triangle-id -> List-of-point-ids
-; The points composing triangle t.
-(defmethod {points-of-triangle Delaunator}
+; The point ids composing the triangle with id `t`.
+(defmethod {point-ids-of-triangle Delaunator}
   (lambda (self t)
-    (map (lambda (e) (u32vector-ref (@ self triangles) e))
-         (edges-of-triangle t))))
+    (let (pids (map (lambda (e) (u32vector-ref (@ self triangles) e))
+                    (halfedge-ids-of-triangle t)))
+      (values (car pids) (cadr pids) (caddr pids)))))
 
 ; Delaunator triangle-id -> List-of-triangle-ids
-; The triangles adjacent to triangle t.
-(defmethod {triangles-adjacent-to-triangle Delaunator}
+; The triangle ids adjacent to triangle with id `t`.
+(defmethod {triangle-ids-adjacent-to-triangle Delaunator}
   (lambda (self t)
     (filter-map (lambda (e)
       (let (opposite (s32vector-ref (@ self halfedges) e))
         (if (>= opposite 0)
-            (triangle-of-edge opposite)
+            (triangle-id-of-edge opposite)
             #f)))
-      (edges-of-triangle t))))
+      (halfedge-ids-of-triangle t))))
 
-; TODO: - Generator/Iterator for each-triangle-edge, attach :iter to class too?
+; DONE: - Generator/Iterator for each-triangle-edge
 ;       - companion proc which takes a callback instead?
 ;;; function forEachTriangleEdge(points, delaunay, callback) {
 ;;;     for (let e = 0; e < delaunay.triangles.length; e++) {
@@ -1127,14 +1133,48 @@
 ;;;         }
 ;;;     }
 ;;; }
+; Delaunator -> (#!void -> halfedge-id f64vector f64vector)
+; Provides an iterator yielding values for each edge of the triangulation.
+; The values yielded are the id of the halfedge chosen for the edge, a
+; f64vector describing the point the edge starts at, and a f64vector
+; describing the point the edge ends at.
+(defmethod {iter-triangle-edges Delaunator}
+  (lambda (self)
+    (lambda ()
+      (do-while ((e 0 (1+ e)))
+                ((< e (@ self triangles-length)))
+        (when (> e (s32vector-ref (@ self halfedges) e))
+          (let* ((coords (@ self coords))
+                 (triangles (@ self triangles))
+                 (pid (u32vector-ref triangles e))
+                 (qid (u32vector-ref triangles (next-halfedge e)))
+                 (p (subf64vector coords (* 2 pid) (+ (* 2 pid) 2)))
+                 (q (subf64vector coords (* 2 qid) (+ (* 2 qid) 2))))
+            (yield e p q)))))))
 
-; TODO: - Generator/Iterator for each-triangle, attach :iter to class too?
+
+; DONE: - Generator/Iterator for each-triangle
 ;       - companion proc which takes a callback instead?
 ;;; function forEachTriangle(points, delaunay, callback) {
 ;;;     for (let t = 0; t < delaunay.triangles.length / 3; t++) {
 ;;;         callback(t, pointsOfTriangle(delaunay, t).map(p => points[p]));
 ;;;     }
 ;;; }
+; Delaunator -> (#!void -> triangle-id f64vector f64vector f64vector)
+; Provides an iterator yielding values for each triangle of the triangulation.
+; The values yielded are the id of the triangle, and three f64vector, each 
+; describing a point of the triangle.
+(defmethod {iter-triangles Delaunator}
+  (lambda (self)
+    (lambda ()
+      (do-while ((t 0 (1+ t)))
+                ((< t (/ (@ self triangles-length) 3)))
+        (let-values (((pid1 pid2 pid3) {point-ids-of-triangle self t})
+                     ((coords) (@ self coords)))
+          (let ((p1 (subf64vector coords (* 2 pid1) (+ (* 2 pid1) 2)))
+                (p2 (subf64vector coords (* 2 pid2) (+ (* 2 pid2) 2)))
+                (p3 (subf64vector coords (* 2 pid3) (+ (* 2 pid3) 2))))
+            (yield t p1 p2 p3)))))))
 
 
 ; MAYBE
