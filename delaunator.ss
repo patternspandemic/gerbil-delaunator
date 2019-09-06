@@ -28,7 +28,36 @@
 (def EPSILON (expt 2 -52))
 (def EDGE_STACK (make-u32vector 512))
 
-; TODO: Add slots for computed bounds
+
+; DONE
+;;; function circumcenter(ax, ay, bx, by, cx, cy) {
+;;;     const dx = bx - ax;
+;;;     const dy = by - ay;
+;;;     const ex = cx - ax;
+;;;     const ey = cy - ay;
+;;; 
+;;;     const bl = dx * dx + dy * dy;
+;;;     const cl = ex * ex + ey * ey;
+;;;     const d = 0.5 / (dx * ey - dy * ex);
+;;; 
+;;;     const x = ax + (ey * bl - dy * cl) * d;
+;;;     const y = ay + (dx * cl - ex * bl) * d;
+;;; 
+;;;     return {x, y};
+;;; }
+(def (circumcenter ax ay bx by cx cy)
+  (let* ((dx (- bx ax))
+         (dy (- by ay))
+         (ex (- cx ax))
+         (ey (- cy ay))
+         (bl (+ (* dx dx) (* dy dy)))
+         (cl (+ (* ex ex) (* ey ey)))
+         (d  (/ 0.5 (- (* dx ey) (* dy ex))))
+         (x (+ ax (* (- (* ey bl) (* dy cl)) d)))
+         (y (+ ay (* (- (* dx cl) (* ex bl)) d))))
+    (values x y)))
+
+
 (defclass Delaunator
   (coords           ; initial flattened coords
    min-X            ; computed min x of coords
@@ -372,34 +401,6 @@
              (x (* (- (* ey bl) (* dy cl)) d))
              (y (* (- (* dx cl) (* ex bl)) d)))
         (+ (* x x) (* y y))))
-
-    ; DONE
-    ;;; function circumcenter(ax, ay, bx, by, cx, cy) {
-    ;;;     const dx = bx - ax;
-    ;;;     const dy = by - ay;
-    ;;;     const ex = cx - ax;
-    ;;;     const ey = cy - ay;
-    ;;; 
-    ;;;     const bl = dx * dx + dy * dy;
-    ;;;     const cl = ex * ex + ey * ey;
-    ;;;     const d = 0.5 / (dx * ey - dy * ex);
-    ;;; 
-    ;;;     const x = ax + (ey * bl - dy * cl) * d;
-    ;;;     const y = ay + (dx * cl - ex * bl) * d;
-    ;;; 
-    ;;;     return {x, y};
-    ;;; }
-    (def (circumcenter ax ay bx by cx cy)
-      (let* ((dx (- bx ax))
-             (dy (- by ay))
-             (ex (- cx ax))
-             (ey (- cy ay))
-             (bl (+ (* dx dx) (* dy dy)))
-             (cl (+ (* ex ex) (* ey ey)))
-             (d  (/ 0.5 (- (* dx ey) (* dy ex))))
-             (x (+ ax (* (- (* ey bl) (* dy cl)) d)))
-             (y (+ ay (* (- (* dx cl) (* ex bl)) d))))
-        (values x y)))
 
     ; DONE
     ;;; function quicksort(ids, dists, left, right) {
@@ -1055,12 +1056,12 @@
       t))) ; return position of added triangle
 
 
-; Delaunator -> '#((min-X min-Y) (max-X max-Y))
-; A vector of two pairs describing the rectangular bounds of the triangulation.
+; Delaunator -> min-X min-Y max-X max-Y
+; The min-X min-Y max-X max-Y values describing the rectangular bounds of the triangulation.
 (defmethod {bounds Delaunator}
   (lambda (self)
-    `#((,(@ self min-X) ,(@ self min-Y))
-       (,(@ self max-X) ,(@ self max-Y)))))
+    (values (@ self min-X) (@ self min-Y)
+            (@ self max-X) (@ self max-Y))))
 
 
 ; DONE
@@ -1175,6 +1176,19 @@
                 (p2 (subf64vector coords (* 2 pid2) (+ (* 2 pid2) 2)))
                 (p3 (subf64vector coords (* 2 pid3) (+ (* 2 pid3) 2))))
             (yield t p1 p2 p3)))))))
+
+
+(defmethod {triangle-center Delaunator}
+  (lambda (self t)
+    (let-values (((pid1 pid2 pid3) {point-ids-of-triangle self t})
+                 ((coords) (@ self coords)))
+      (let* ((p1 (subf64vector coords (* 2 pid1) (+ (* 2 pid1) 2)))
+             (p2 (subf64vector coords (* 2 pid2) (+ (* 2 pid2) 2)))
+             (p3 (subf64vector coords (* 2 pid3) (+ (* 2 pid3) 2)))
+             ((values cx cy) (circumcenter (f64vector-ref p1 0) (f64vector-ref p1 1)
+                                           (f64vector-ref p2 0) (f64vector-ref p2 1)
+                                           (f64vector-ref p3 0) (f64vector-ref p3 1))))
+        (f64vector cx cy)))))
 
 
 ; MAYBE
