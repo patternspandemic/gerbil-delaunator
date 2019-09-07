@@ -12,6 +12,7 @@
   Delaunator-triangles
   Delaunator-halfedges
   Delaunator-hull
+  ;bounds
   delaunator/from
   halfedge-ids-of-triangle
   triangle-id-of-edge
@@ -21,6 +22,7 @@
   ;triangle-ids-adjacent-to-triangle
   ;iter-triangle-edges
   ;iter-triangles
+  ;triangle-center
   ;iter-voronoi-edges
   ;iter-voronoi-regions
   )
@@ -1177,7 +1179,8 @@
                 (p3 (subf64vector coords (* 2 pid3) (+ (* 2 pid3) 2))))
             (yield t p1 p2 p3)))))))
 
-
+; Delaunator triangle-id -> f64vector
+; The circumcenter of triangle with id `t`.
 (defmethod {triangle-center Delaunator}
   (lambda (self t)
     (let-values (((pid1 pid2 pid3) {point-ids-of-triangle self t})
@@ -1191,13 +1194,23 @@
         (f64vector cx cy)))))
 
 
+; NOTES for iterating voronoi edges and regions:
+;  - For edges, default to ignoring them when they cross a hull halfedge, just
+;    as in `forEachVoronoiEdge`. Latter add a with bounded option that takes
+;    a clipping region.
+;  - For regions, default to never circulating around hull points in the
+;    `edgesAroundPoint` loop by initing the seen set to the hull points (use the
+;    first version of `forEachVoronoiCell`, not the 'leftmost' sorting one).
+;    Latter add an option to include regions of hull points that takes a
+;    clipping region.
+
+
 ; MAYBE
 ; Procs to pull out to module level for possible reuse?
 ; - in-circle
 ; - swap
 ; - dist
 ; - circumradius
-; - circumcenter
 
 ; > (import :std/text/json "delaunator.ss")
 ; > (def points (list->vector (with-input-from-file "ukraine.json" (lambda () (read-json)))))
