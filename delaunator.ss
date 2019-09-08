@@ -2,6 +2,8 @@
 ; Some of these loops can may be able to be replaced with while/until.
 
 (import :std/iter
+        :std/srfi/113
+        :std/srfi/128
         :gerbil/gambit/bits
         :gerbil/gambit/exact
         :gerbil/gambit/hvectors)
@@ -24,6 +26,7 @@
   ;iter-triangles
   ;triangle-center
   ;iter-voronoi-edges
+  ;edges-around-point
   ;iter-voronoi-regions
   )
 
@@ -1155,7 +1158,6 @@
                  (q (subf64vector coords (* 2 qid) (+ (* 2 qid) 2))))
             (yield e p q)))))))
 
-
 ; DONE: - Generator/Iterator for each-triangle
 ;       - companion proc which takes a callback instead?
 ;;; function forEachTriangle(points, delaunay, callback) {
@@ -1193,7 +1195,6 @@
                                            (f64vector-ref p3 0) (f64vector-ref p3 1))))
         (f64vector cx cy)))))
 
-
 ; NOTES for iterating voronoi edges and regions:
 ;  - For edges, default to ignoring them when they cross a hull halfedge, just
 ;    as in `forEachVoronoiEdge`. Latter add a with bounded option that takes
@@ -1204,6 +1205,65 @@
 ;    Latter add an option to include regions of hull points that takes a
 ;    clipping region.
 
+; Delaunator -> (#!void -> halfedge-id f64vector f64vector)
+; Provides an iterator yielding values for each bisecting voronoi edge of the
+; graph dual to the triangulation. The values yielded are the id of the
+; halfedge chosen for the bisected edge, a f64vector describing the
+; circumcenter of the triangle for which that halfedge is a part, and a
+; f64vector describing the circumcenter of the adjacent triangle for which that
+; halfedge's compliment is a part. By default, no voronoi edges bisecting the
+; hull of the triangulation are provided. For such bisectors to be included, a
+; bounding region must be provided to clip these edges against.
+; TODO: Support voronoi edges of the hull.
+(defmethod {iter-voronoi-edges Delaunator}
+  (lambda (self) ;(lambda (self bounds: (bounds #f)) ...)
+    (lambda ()
+      (do-while ((e 0 (1+ e)))
+                ((< e (@ self triangles-length)))
+        (when (< e (s32vector-ref (@ self halfedges) e)) ; excludes halfedges on hull
+          (let* ((p {triangle-center self (triangle-id-of-edge e)})
+                 (q {triangle-center self (triangle-id-of-edge (s32vector-ref (@ self halfedges) e))}))
+            (yield e p q)))))))
+
+; Delaunator halfedge-id -> List-of-halfedge-ids
+; The ids of all halfedges pointing to the point that `start` points to.
+; `start` should not point to a point on the hull.
+(defmethod {edge-ids-around-point Delaunator}
+  (lambda (self start)
+    (let ((incoming start)
+          (result []))
+
+      (let lp ()
+        (set! result (cons incoming result))
+        (let (outgoing (next-halfedge incoming))
+            (set! incoming (s32vector-ref (@ self halfedges) outgoing)))
+        (unless (or (= incoming -1)
+                    (= incoming start))
+          (lp)))
+      result)))
+
+; Delaunator -> (#!void -> point-id f64vector-of-f64vector)
+; Provides an iterator yielding values for each region of the voronoi diagram.
+; The values yielded are the id of the point to which the region belongs, and
+; a list of f64vectors, describing the region's polygon.
+(defmethod {iter-voronoi-regions Delaunator}
+  (lambda (self)  ;(lambda (self bounds: (bounds #f)) ...)
+    (let* ((seen (set (make-default-comparator)))
+           (hull-ids (@ self hull))
+           (hull-length (u32vector-length hull-ids)))
+      ; Do not yield regions of hull points by default
+      (for ((i (in-range hull-length)))
+        (set-adjoin! seen (u32vector-ref hull-ids i)))
+      (lambda ()
+        (do-while ((e 0 (1+ e)))
+                  ((< e (@ self triangles-length)))
+          (let ((p (u32vector-ref (@ self triangles) (next-halfedge e))))
+            (unless (set-contains? seen p)
+              (set-adjoin! seen p)
+              (let* ((edge-ids {edge-ids-around-point self e})
+                     (triangle-ids (map triangle-id-of-edge edge-ids))
+                     (vertices (map (lambda (tid) {triangle-center self tid}) triangle-ids)))
+                (yield p vertices)))))))))
 
 ; MAYBE
 ; Procs to pull out to module level for possible reuse?
@@ -1212,6 +1272,6 @@
 ; - dist
 ; - circumradius
 
-; > (import :std/text/json "delaunator.ss")
+; > (import :std/text/json :std/iter "delaunator.ss")
 ; > (def points (list->vector (with-input-from-file "ukraine.json" (lambda () (read-json)))))
 ; > (def d (delaunator/from points))
