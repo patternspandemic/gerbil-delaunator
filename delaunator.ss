@@ -108,8 +108,8 @@
                (j (1- i)))
           (while (and (>= j left)
                       (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist))
-            (u32vector-set! ids (1+ j) (u32vector-ref ids j)))
-          (set! j (1- j))
+            (u32vector-set! ids (1+ j) (u32vector-ref ids j))
+            (set! j (1- j)))
           (u32vector-set! ids (1+ j) temp)))
 
       ; else
