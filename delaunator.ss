@@ -2,54 +2,41 @@
 ; Some of these loops can may be able to be replaced with while/until.
 
 (import :std/iter
+        :std/logger
         :std/srfi/113
         :std/srfi/128
+        :std/sugar
         :gerbil/gambit/bits
         :gerbil/gambit/exact
         :gerbil/gambit/hvectors)
 
+(export #t)
 ; TODO: Probably remove slot accessors and provide iterators for them.
-(export
-  Delaunator-coords
-  Delaunator-triangles
-  Delaunator-halfedges
-  Delaunator-hull
-  ;bounds
-  delaunator/from
-  halfedge-ids-of-triangle
-  triangle-id-of-edge
-  next-halfedge
-  prev-halfedge
-  ;point-ids-of-triangle
-  ;triangle-ids-adjacent-to-triangle
-  ;iter-triangle-edges
-  ;iter-triangles
-  ;triangle-center
-  ;iter-voronoi-edges
-  ;edges-around-point
-  ;iter-voronoi-regions
-  )
+; (export
+;   Delaunator-coords
+;   Delaunator-triangles
+;   Delaunator-halfedges
+;   Delaunator-hull
+;   ;bounds
+;   delaunator/from
+;   halfedge-ids-of-triangle
+;   triangle-id-of-edge
+;   next-halfedge
+;   prev-halfedge
+;   ;point-ids-of-triangle
+;   ;triangle-ids-adjacent-to-triangle
+;   ;iter-triangle-edges
+;   ;iter-triangles
+;   ;triangle-center
+;   ;iter-voronoi-edges
+;   ;edges-around-point
+;   ;iter-voronoi-regions
+;   )
 
 (def EPSILON (expt 2 -52))
 (def EDGE_STACK (make-u32vector 512))
 
 
-; DONE
-;;; function circumcenter(ax, ay, bx, by, cx, cy) {
-;;;     const dx = bx - ax;
-;;;     const dy = by - ay;
-;;;     const ex = cx - ax;
-;;;     const ey = cy - ay;
-;;; 
-;;;     const bl = dx * dx + dy * dy;
-;;;     const cl = ex * ex + ey * ey;
-;;;     const d = 0.5 / (dx * ey - dy * ex);
-;;; 
-;;;     const x = ax + (ey * bl - dy * cl) * d;
-;;;     const y = ay + (dx * cl - ex * bl) * d;
-;;; 
-;;;     return {x, y};
-;;; }
 (def (circumcenter ax ay bx by cx cy)
   (let* ((dx (- bx ax))
          (dy (- by ay))
@@ -61,6 +48,133 @@
          (x (+ ax (* (- (* ey bl) (* dy cl)) d)))
          (y (+ ay (* (- (* dx cl) (* ex bl)) d))))
     (values x y)))
+
+(def (circumradius ax ay bx by cx cy)
+  (let* ((dx (- bx ax))
+         (dy (- by ay))
+         (ex (- cx ax))
+         (ey (- cy ay))
+         (bl (+ (* dx dx) (* dy dy)))
+         (cl (+ (* ex ex) (* ey ey)))
+         (d  (/ 0.5 (- (* dx ey) (* dy ex))))
+         (x (* (- (* ey bl) (* dy cl)) d))
+         (y (* (- (* dx cl) (* ex bl)) d)))
+    (+ (* x x) (* y y))))
+
+(def (dist ax ay bx by)
+  (let ((dx (- ax bx))
+        (dy (- ay by)))
+    (+ (* dx dx) (* dy dy))))
+
+(def (orient-if-sure px py rx ry qx qy)
+  (let ((l (* (- ry py) (- qx px)))
+        (r (* (- rx px) (- qy py))))
+    (if (>= (abs (- l r)) (* 3.3306690738754716e-16 (abs (+ l r))))
+        (- l r)
+        #f))) ;0)))
+
+(def (orient rx ry qx qy px py)
+  (< (or (orient-if-sure px py rx ry qx qy)
+         (orient-if-sure rx ry qx qy px py)
+         (orient-if-sure qx qy px py rx ry)
+         0)
+      0))
+
+(def (quicksort ids dists left right)
+
+  (def (swap vec i j)
+    (let (tmp (u32vector-ref vec i))
+      (u32vector-set! vec i (u32vector-ref vec j))
+      (u32vector-set! vec j tmp)))
+
+  (if (<= (- right left) 20)
+      ; (let lp ((i (1+ left)))
+      ;   (when (<= i right)
+      ;     (let* ((temp (u32vector-ref ids i))
+      ;             (temp-dist (f64vector-ref dists temp)))
+      ;       (let lpi ((j (1- i)))
+      ;         (when (and (>= j left)
+      ;                     (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist))
+      ;           (u32vector-set! ids (1+ j) (u32vector-ref ids j))
+      ;           (lpi (1- j)))
+      ;         (u32vector-set! ids (1+ j) temp)))
+      ;     (lp (1+ i))))
+
+      ; then
+      (do-while ((i (1+ left) (1+ i)))
+                ((<= i right))
+        (let* ((temp (u32vector-ref ids i))
+               (temp-dist (f64vector-ref dists temp))
+               (j (1- i)))
+          (while (and (>= j left)
+                      (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist))
+            (u32vector-set! ids (1+ j) (u32vector-ref ids j)))
+          (set! j (1- j))
+          (u32vector-set! ids (1+ j) temp)))
+
+      ; else
+      (let ((median (arithmetic-shift (+ left right) -1))
+            (i (1+ left))
+            (j right))
+        (swap ids median i)
+        (if (> (f64vector-ref dists (u32vector-ref ids left))
+               (f64vector-ref dists (u32vector-ref ids right)))
+            (swap ids left right))
+        (if (> (f64vector-ref dists (u32vector-ref ids i))
+               (f64vector-ref dists (u32vector-ref ids right)))
+            (swap ids i right))
+        (if (> (f64vector-ref dists (u32vector-ref ids left))
+               (f64vector-ref dists (u32vector-ref ids i)))
+            (swap ids left i))
+
+        (let* ((temp (u32vector-ref ids i))
+               (temp-dist (f64vector-ref dists temp)))
+
+          (call/cc (lambda (esc-break)
+            (let lp ()
+              (let lpi ()
+                (set! i (1+ i))
+                (if (< (f64vector-ref dists (u32vector-ref ids i)) temp-dist)
+                    (lpi)))
+              (let lpi ()
+                (set! j (1- j))
+                (if (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist)
+                    (lpi)))
+              (if (< j i) (esc-break))
+              (swap ids i j)
+              (lp))
+          )) ; end breaking call/cc
+
+          (u32vector-set! ids (1+ left) (u32vector-ref ids j))
+          (u32vector-set! ids j temp)
+
+          (if (>= (- right (1+ i)) (- j left))
+              ; then
+              (begin (quicksort ids dists i right)
+                     (quicksort ids dists left (1- j)))
+              ; else
+              (begin (quicksort ids dists left (1- j))
+                     (quicksort ids dists i right)))))))
+
+(def (pseudo-angle dx dy)
+  (let* ((p (/ dx (+ (abs dx) (abs dy))))
+         (n (if (> dy 0) (- 3 p) (1+ p))))
+    (/ n 4)))
+
+(def (in-circle ax ay bx by cx cy px py)
+  (let* ((dx (- ax px))
+         (dy (- ay py))
+         (ex (- bx px))
+         (ey (- by py))
+         (fx (- cx px))
+         (fy (- cy py))
+         (ap (+ (* dx dx) (* dy dy)))
+         (bp (+ (* ex ex) (* ey ey)))
+         (cp (+ (* fx fx) (* fy fy))))
+    (< (+ (- (* dx (- (* ey cp) (* bp fy)))
+             (* dy (- (* ex cp) (* bp fx))))
+             (* ap (- (* ex fy) (* ey fx))))
+        0)))
 
 
 (defclass Delaunator
@@ -330,195 +444,6 @@
 ;;;     }
 (defmethod {update Delaunator}
   (lambda (self)
-    ; DONE
-    ;;; function dist(ax, ay, bx, by) {
-    ;;;     const dx = ax - bx;
-    ;;;     const dy = ay - by;
-    ;;;     return dx * dx + dy * dy;
-    ;;; }
-    (def (dist ax ay bx by)
-      (let ((dx (- ax bx))
-            (dy (- ay by)))
-        (+ (* dx dx) (* dy dy))))
-
-    ; DONE - OLD IMPL.
-    ;;; function orient(px, py, qx, qy, rx, ry) {
-    ;;;     return (qy - py) * (rx - qx) - (qx - px) * (ry - qy) < 0;
-    ;;; }
-    ; (def (orient px py qx qy rx ry)
-    ;   (< (- (* (- qy py) (- rx qx)) (* (- qx px) (- ry qy)))
-    ;      0))
-
-    ; DONE
-    ;;; // return 2d orientation sign if we're confident in it through J. Shewchuk's error bound check
-    ;;; function orientIfSure(px, py, rx, ry, qx, qy) {
-    ;;;     const l = (ry - py) * (qx - px);
-    ;;;     const r = (rx - px) * (qy - py);
-    ;;;     return Math.abs(l - r) >= 3.3306690738754716e-16 * Math.abs(l + r) ? l - r : 0;
-    ;;; }
-    ; Return 2d orientation sign if we're confident in it through J. Shewchuk's error bound check
-    (def (orient-if-sure px py rx ry qx qy)
-      (let ((l (* (- ry py) (- qx px)))
-            (r (* (- rx px) (- qy py))))
-        (if (>= (abs (- l r)) (* 3.3306690738754716e-16 (abs (+ l r))))
-            (- l r)
-            #f))) ;0)))
-
-    ;
-    ;;; // a more robust orientation test that's stable in a given triangle (to fix robustness issues)
-    ;;; function orient(rx, ry, qx, qy, px, py) {
-    ;;;     return (orientIfSure(px, py, rx, ry, qx, qy) ||
-    ;;;             orientIfSure(rx, ry, qx, qy, px, py) ||
-    ;;;             orientIfSure(qx, qy, px, py, rx, ry)) < 0;
-    ;;; }
-    ; A more robust orientation test that's stable in a given triangle (to fix robustness issues)
-    (def (orient rx ry qx qy px py)
-      (< (or (orient-if-sure px py rx ry qx qy)
-             (orient-if-sure rx ry qx qy px py)
-             (orient-if-sure qx qy px py rx ry)
-             0)
-         0))
-
-    ; DONE
-    ;;; function circumradius(ax, ay, bx, by, cx, cy) {
-    ;;;     const dx = bx - ax;
-    ;;;     const dy = by - ay;
-    ;;;     const ex = cx - ax;
-    ;;;     const ey = cy - ay;
-    ;;; 
-    ;;;     const bl = dx * dx + dy * dy;
-    ;;;     const cl = ex * ex + ey * ey;
-    ;;;     const d = 0.5 / (dx * ey - dy * ex);
-    ;;; 
-    ;;;     const x = (ey * bl - dy * cl) * d;
-    ;;;     const y = (dx * cl - ex * bl) * d;
-    ;;; 
-    ;;;     return x * x + y * y;
-    ;;; }
-    (def (circumradius ax ay bx by cx cy)
-      (let* ((dx (- bx ax))
-             (dy (- by ay))
-             (ex (- cx ax))
-             (ey (- cy ay))
-             (bl (+ (* dx dx) (* dy dy)))
-             (cl (+ (* ex ex) (* ey ey)))
-             (d  (/ 0.5 (- (* dx ey) (* dy ex))))
-             (x (* (- (* ey bl) (* dy cl)) d))
-             (y (* (- (* dx cl) (* ex bl)) d)))
-        (+ (* x x) (* y y))))
-
-    ; DONE
-    ;;; function quicksort(ids, dists, left, right) {
-    ;;;     if (right - left <= 20) {
-    ;;;         for (let i = left + 1; i <= right; i++) {
-    ;;;             const temp = ids[i];
-    ;;;             const tempDist = dists[temp];
-    ;;;             let j = i - 1;
-    ;;;             while (j >= left && dists[ids[j]] > tempDist) ids[j + 1] = ids[j--];
-    ;;;             ids[j + 1] = temp;
-    ;;;         }
-    ;;;     } else {
-    ;;;         const median = (left + right) >> 1;
-    ;;;         let i = left + 1;
-    ;;;         let j = right;
-    ;;;         swap(ids, median, i);
-    ;;;         if (dists[ids[left]] > dists[ids[right]]) swap(ids, left, right);
-    ;;;         if (dists[ids[i]] > dists[ids[right]]) swap(ids, i, right);
-    ;;;         if (dists[ids[left]] > dists[ids[i]]) swap(ids, left, i);
-    ;;; 
-    ;;;         const temp = ids[i];
-    ;;;         const tempDist = dists[temp];
-    ;;;         while (true) {
-    ;;;             do i++; while (dists[ids[i]] < tempDist);
-    ;;;             do j--; while (dists[ids[j]] > tempDist);
-    ;;;             if (j < i) break;
-    ;;;             swap(ids, i, j);
-    ;;;         }
-    ;;;         ids[left + 1] = ids[j];
-    ;;;         ids[j] = temp;
-    ;;; 
-    ;;;         if (right - i + 1 >= j - left) {
-    ;;;             quicksort(ids, dists, i, right);
-    ;;;             quicksort(ids, dists, left, j - 1);
-    ;;;         } else {
-    ;;;             quicksort(ids, dists, left, j - 1);
-    ;;;             quicksort(ids, dists, i, right);
-    ;;;         }
-    ;;;     }
-    ;;; }
-    ; TODO: Maybe Refactor with call/cc? See 'START call/cc here' below
-    (def (quicksort ids dists left right)
-      ; DONE
-      ;;; function swap(arr, i, j) {
-      ;;;     const tmp = arr[i];
-      ;;;     arr[i] = arr[j];
-      ;;;     arr[j] = tmp;
-      ;;; }
-      (def (swap vec i j)
-        (let (tmp (u32vector-ref vec i))
-          (u32vector-set! vec i (u32vector-ref vec j))
-          (u32vector-set! vec j tmp)))
-
-      (if (<= (- right left) 20)
-          ; then
-          (let lp ((i (1+ left)))
-            (when (<= i right)
-              (let* ((temp (u32vector-ref ids i))
-                     (temp-dist (f64vector-ref dists temp)))
-                (let lpi ((j (1- i)))
-                  (when (and (>= j left)
-                             (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist))
-                    (u32vector-set! ids (1+ j) (u32vector-ref ids j))
-                    (lpi (1- j)))
-                  (u32vector-set! ids (1+ j) temp)))
-              (lp (1+ i))))
-          ; else
-          (let* ((median (arithmetic-shift (+ left right) -1))
-                 (i (1+ left))
-                 (j right))
-            (swap ids median i)
-            (if (> (f64vector-ref dists (u32vector-ref ids left))
-                   (f64vector-ref dists (u32vector-ref ids right)))
-                (swap ids left right))
-            (if (> (f64vector-ref dists (u32vector-ref ids i))
-                   (f64vector-ref dists (u32vector-ref ids right)))
-                (swap ids i right))
-            (if (> (f64vector-ref dists (u32vector-ref ids left))
-                   (f64vector-ref dists (u32vector-ref ids i)))
-                (swap ids left i))
-
-            (let* ((temp (u32vector-ref ids i))
-                   (temp-dist (f64vector-ref dists temp)))
-
-              (call/cc (lambda (esc-break)
-                (let lp ()
-                  (let lpi ()
-                    (set! i (1+ i))
-                    (if (< (f64vector-ref dists (u32vector-ref ids i)) temp-dist)
-                        (lpi)))
-                  (let lpi ()
-                    (set! j (1- j))
-                    (if (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist)
-                        (lpi)))
-                  (if (< j i) (esc-break))
-                  (swap ids i j)
-                  (lp))
-              )) ; end breaking call/cc
-
-              (u32vector-set! ids (1+ left) (u32vector-ref ids j))
-              (u32vector-set! ids j temp)
-
-              (if (>= (- right (1+ i)) (- j left))
-                  ; then
-                  (begin (quicksort ids dists i right)
-                         (quicksort ids dists left (1- j)))
-                  ; else
-                  (begin (quicksort ids dists left (1- j))
-                         (quicksort ids dists i right)))))                            
-
-    )) ; end quicksort impl.
-
-    ; update implementation:
     (call/cc
       (lambda (escape)
 
@@ -584,7 +509,9 @@
 
                 (let ((i2x (f64vector-ref coords (* 2 i2)))
                       (i2y (f64vector-ref coords (1+ (* 2 i2)))))
-
+; (debug "i0: ~a, i1: ~a, i2: ~a" i0 i1 i2)
+; 21 20 42
+; ((532 497) (585 554) (622 493))
                   (when (= min-radius +inf.0)
                     ; order collinear points by dx (or dy if all are identical)
                     ; and return the list as a hull
@@ -792,17 +719,6 @@
 ;;;     }
 (defmethod {_hash-key Delaunator}
   (lambda (self x y)
-    ; DONE
-    ;;; // monotonically increases with real angle, but doesn't need expensive trigonometry
-    ;;; function pseudoAngle(dx, dy) {
-    ;;;     const p = dx / (Math.abs(dx) + Math.abs(dy));
-    ;;;     return (dy > 0 ? 3 - p : 1 + p) / 4; // [0..1]
-    ;;; }
-    (def (pseudo-angle dx dy)
-      (let* ((p (/ dx (+ (abs dx) (abs dy))))
-             (n (if (> dy 0) (- 3 p) (1+ p))))
-        (/ n 4)))
-    
     (let ((cx (@ self _cx))
           (cy (@ self _cy))
           (hs (@ self _hash-size)))
@@ -898,38 +814,6 @@
 ;;;     }
 (defmethod {_legalize Delaunator}
   (lambda (self a)
-    ; DONE
-    ;;; function inCircle(ax, ay, bx, by, cx, cy, px, py) {
-    ;;;     const dx = ax - px;
-    ;;;     const dy = ay - py;
-    ;;;     const ex = bx - px;
-    ;;;     const ey = by - py;
-    ;;;     const fx = cx - px;
-    ;;;     const fy = cy - py;
-    ;;; 
-    ;;;     const ap = dx * dx + dy * dy;
-    ;;;     const bp = ex * ex + ey * ey;
-    ;;;     const cp = fx * fx + fy * fy;
-    ;;; 
-    ;;;     return dx * (ey * cp - bp * fy) -
-    ;;;            dy * (ex * cp - bp * fx) +
-    ;;;            ap * (ex * fy - ey * fx) < 0;
-    ;;; }
-    (def (in-circle ax ay bx by cx cy px py)
-      (let* ((dx (- ax px))
-             (dy (- ay py))
-             (ex (- bx px))
-             (ey (- by py))
-             (fx (- cx px))
-             (fy (- cy py))
-             (ap (+ (* dx dx) (* dy dy)))
-             (bp (+ (* ex ex) (* ey ey)))
-             (cp (+ (* fx fx) (* fy fy))))
-        (< (+ (- (* dx (- (* ey cp) (* bp fy)))
-                 (* dy (- (* ex cp) (* bp fx))))
-                 (* ap (- (* ex fy) (* ey fx))))
-           0)))
-
     (let ((triangles (@ self _triangles))
           (halfedges (@ self _halfedges))
           (coords (@ self coords))
@@ -1195,16 +1079,6 @@
                                            (f64vector-ref p3 0) (f64vector-ref p3 1))))
         (f64vector cx cy)))))
 
-; NOTES for iterating voronoi edges and regions:
-;  - For edges, default to ignoring them when they cross a hull halfedge, just
-;    as in `forEachVoronoiEdge`. Latter add a with bounded option that takes
-;    a clipping region.
-;  - For regions, default to never circulating around hull points in the
-;    `edgesAroundPoint` loop by initing the seen set to the hull points (use the
-;    first version of `forEachVoronoiCell`, not the 'leftmost' sorting one).
-;    Latter add an option to include regions of hull points that takes a
-;    clipping region.
-
 ; Delaunator -> (#!void -> halfedge-id f64vector f64vector)
 ; Provides an iterator yielding values for each bisecting voronoi edge of the
 ; graph dual to the triangulation. The values yielded are the id of the
@@ -1232,7 +1106,6 @@
   (lambda (self start)
     (let ((incoming start)
           (result []))
-
       (let lp ()
         (set! result (cons incoming result))
         (let (outgoing (next-halfedge incoming))
@@ -1246,6 +1119,7 @@
 ; Provides an iterator yielding values for each region of the voronoi diagram.
 ; The values yielded are the id of the point to which the region belongs, and
 ; a list of f64vectors, describing the region's polygon.
+; TODO: Support voronoi regions of the hull.
 (defmethod {iter-voronoi-regions Delaunator}
   (lambda (self)  ;(lambda (self bounds: (bounds #f)) ...)
     (let* ((seen (set (make-default-comparator)))
@@ -1265,13 +1139,18 @@
                      (vertices (map (lambda (tid) {triangle-center self tid}) triangle-ids)))
                 (yield p vertices)))))))))
 
+; TODO: Add a point id to incoming halfedge index for site specific region lookiup
+; const index = new Map(); // point id to half-edge id
+; for (let e = 0; e < delaunay.triangles.length; e++) {
+;     const endpoint = delaunay.triangles[nextHalfedge(e)];
+;     if (!index.has(endpoint) || delaunay.halfedges[e] === -1) {
+;         index.set(endpoint, e);
+;     }
+; }
+
 ; MAYBE
 ; Procs to pull out to module level for possible reuse?
 ; - in-circle
 ; - swap
 ; - dist
 ; - circumradius
-
-; > (import :std/text/json :std/iter "delaunator.ss")
-; > (def points (list->vector (with-input-from-file "ukraine.json" (lambda () (read-json)))))
-; > (def d (delaunator/from points))
