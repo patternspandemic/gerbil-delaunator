@@ -577,12 +577,12 @@
                   (u32vector-set! hull-tri i1 1)
                   (u32vector-set! hull-tri i2 2)
 
-                  ;(s32vector-fill! hull-hash -1) ; Already filled at :init!
+                  (s32vector-fill! hull-hash -1)
                   (s32vector-set! hull-hash {_hash-key self i0x i0y} i0)
                   (s32vector-set! hull-hash {_hash-key self i1x i1y} i1)
                   (s32vector-set! hull-hash {_hash-key self i2x i2y} i2)
 
-                  ;(set! (@ self triangles-length) 0) ; Already set at :init!
+                  (set! (@ self triangles-length) 0)
                   {_add-triangle self i0 i1 i2 -1 -1 -1}
 
                   (let ((hull-size 3)
