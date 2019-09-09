@@ -33,6 +33,7 @@
 ;   ;iter-voronoi-regions
 ;   )
 
+
 (def EPSILON (expt 2 -52))
 (def EDGE_STACK (make-u32vector 512))
 
@@ -88,17 +89,6 @@
       (u32vector-set! vec j tmp)))
 
   (if (<= (- right left) 20)
-      ; (let lp ((i (1+ left)))
-      ;   (when (<= i right)
-      ;     (let* ((temp (u32vector-ref ids i))
-      ;             (temp-dist (f64vector-ref dists temp)))
-      ;       (let lpi ((j (1- i)))
-      ;         (when (and (>= j left)
-      ;                     (> (f64vector-ref dists (u32vector-ref ids j)) temp-dist))
-      ;           (u32vector-set! ids (1+ j) (u32vector-ref ids j))
-      ;           (lpi (1- j)))
-      ;         (u32vector-set! ids (1+ j) temp)))
-      ;     (lp (1+ i))))
 
       ; then
       (do-while ((i (1+ left) (1+ i)))
@@ -230,218 +220,6 @@
     {update self}))
 
 
-;
-;;;     update() {
-;;;         const {coords, _hullPrev: hullPrev, _hullNext: hullNext, _hullTri: hullTri, _hullHash: hullHash} =  this;
-;;;         const n = coords.length >> 1;
-;;; 
-;;;         // populate an array of point indices; calculate input data bbox
-;;;         let minX = Infinity;
-;;;         let minY = Infinity;
-;;;         let maxX = -Infinity;
-;;;         let maxY = -Infinity;
-;;; 
-;;;         for (let i = 0; i < n; i++) {
-;;;             const x = coords[2 * i];
-;;;             const y = coords[2 * i + 1];
-;;;             if (x < minX) minX = x;
-;;;             if (y < minY) minY = y;
-;;;             if (x > maxX) maxX = x;
-;;;             if (y > maxY) maxY = y;
-;;;             this._ids[i] = i;
-;;;         }
-;;;         const cx = (minX + maxX) / 2;
-;;;         const cy = (minY + maxY) / 2;
-;;; 
-;;;         let minDist = Infinity;
-;;;         let i0, i1, i2;
-;;; 
-;;;         // pick a seed point close to the center
-;;;         for (let i = 0; i < n; i++) {
-;;;             const d = dist(cx, cy, coords[2 * i], coords[2 * i + 1]);
-;;;             if (d < minDist) {
-;;;                 i0 = i;
-;;;                 minDist = d;
-;;;             }
-;;;         }
-;;;         const i0x = coords[2 * i0];
-;;;         const i0y = coords[2 * i0 + 1];
-;;; 
-;;;         minDist = Infinity;
-;;; 
-;;;         // find the point closest to the seed
-;;;         for (let i = 0; i < n; i++) {
-;;;             if (i === i0) continue;
-;;;             const d = dist(i0x, i0y, coords[2 * i], coords[2 * i + 1]);
-;;;             if (d < minDist && d > 0) {
-;;;                 i1 = i;
-;;;                 minDist = d;
-;;;             }
-;;;         }
-;;;         let i1x = coords[2 * i1];
-;;;         let i1y = coords[2 * i1 + 1];
-;;; 
-;;;         let minRadius = Infinity;
-;;; 
-;;;         // find the third point which forms the smallest circumcircle with the first two
-;;;         for (let i = 0; i < n; i++) {
-;;;             if (i === i0 || i === i1) continue;
-;;;             const r = circumradius(i0x, i0y, i1x, i1y, coords[2 * i], coords[2 * i + 1]);
-;;;             if (r < minRadius) {
-;;;                 i2 = i;
-;;;                 minRadius = r;
-;;;             }
-;;;         }
-;;;         let i2x = coords[2 * i2];
-;;;         let i2y = coords[2 * i2 + 1];
-;;; 
-;;;         if (minRadius === Infinity) {
-;;;             // order collinear points by dx (or dy if all x are identical)
-;;;             // and return the list as a hull
-;;;             for (let i = 0; i < n; i++) {
-;;;                 this._dists[i] = (coords[2 * i] - coords[0]) || (coords[2 * i + 1] - coords[1]);
-;;;             }
-;;;             quicksort(this._ids, this._dists, 0, n - 1);
-;;;             const hull = new Uint32Array(n);
-;;;             let j = 0;
-;;;             for (let i = 0, d0 = -Infinity; i < n; i++) {
-;;;                 const id = this._ids[i];
-;;;                 if (this._dists[id] > d0) {
-;;;                     hull[j++] = id;           ;;; DON'T FORGET INC j ONLY ON LOOP ;;;
-;;;                     d0 = this._dists[id];
-;;;                 }
-;;;             }
-;;;             this.hull = hull.subarray(0, j);
-;;;             this.triangles = new Uint32Array(0);
-;;;             this.halfedges = new Uint32Array(0);
-;;;             return;
-;;;         }
-;;; 
-;;;         // swap the order of the seed points for counter-clockwise orientation
-;;;         if (orient(i0x, i0y, i1x, i1y, i2x, i2y)) {
-;;;             const i = i1;
-;;;             const x = i1x;
-;;;             const y = i1y;
-;;;             i1 = i2;
-;;;             i1x = i2x;
-;;;             i1y = i2y;
-;;;             i2 = i;
-;;;             i2x = x;
-;;;             i2y = y;
-;;;         }
-;;; 
-;;;         const center = circumcenter(i0x, i0y, i1x, i1y, i2x, i2y);
-;;;         this._cx = center.x;
-;;;         this._cy = center.y;
-;;; 
-;;;         for (let i = 0; i < n; i++) {
-;;;             this._dists[i] = dist(coords[2 * i], coords[2 * i + 1], center.x, center.y);
-;;;         }
-;;; 
-;;;         // sort the points by distance from the seed triangle circumcenter
-;;;         quicksort(this._ids, this._dists, 0, n - 1);
-;;; 
-;;;         // set up the seed triangle as the starting hull
-;;;         this._hullStart = i0;
-;;;         let hullSize = 3;
-;;; 
-;;;         hullNext[i0] = hullPrev[i2] = i1;
-;;;         hullNext[i1] = hullPrev[i0] = i2;
-;;;         hullNext[i2] = hullPrev[i1] = i0;
-;;; 
-;;;         hullTri[i0] = 0;
-;;;         hullTri[i1] = 1;
-;;;         hullTri[i2] = 2;
-;;; 
-;;;         hullHash.fill(-1);
-;;;         hullHash[this._hashKey(i0x, i0y)] = i0;
-;;;         hullHash[this._hashKey(i1x, i1y)] = i1;
-;;;         hullHash[this._hashKey(i2x, i2y)] = i2;
-;;; 
-;;;         this.trianglesLen = 0;
-;;;         this._addTriangle(i0, i1, i2, -1, -1, -1);
-;;; 
-;;;         for (let k = 0, xp, yp; k < this._ids.length; k++) {
-;;;             const i = this._ids[k];
-;;;             const x = coords[2 * i];
-;;;             const y = coords[2 * i + 1];
-;;; 
-;;;             // skip near-duplicate points
-;;;             if (k > 0 && Math.abs(x - xp) <= EPSILON && Math.abs(y - yp) <= EPSILON) continue;
-;;;             xp = x;
-;;;             yp = y;
-;;; 
-;;;             // skip seed triangle points
-;;;             if (i === i0 || i === i1 || i === i2) continue;
-;;; 
-;;;             // find a visible edge on the convex hull using edge hash
-;;;             let start = 0;
-;;;             for (let j = 0, key = this._hashKey(x, y); j < this._hashSize; j++) {
-;;;                 start = hullHash[(key + j) % this._hashSize];
-;;;                 if (start !== -1 && start !== hullNext[start]) break;
-;;;             }
-;;; 
-;;;             start = hullPrev[start];
-;;;             let e = start, q;
-;;;             while (q = hullNext[e], !orient(x, y, coords[2 * e], coords[2 * e + 1], coords[2 * q], coords[2 * q + 1])) {
-;;;                 e = q;
-;;;                 if (e === start) {
-;;;                     e = -1;
-;;;                     break;
-;;;                 }
-;;;             }
-;;;             if (e === -1) continue; // likely a near-duplicate point; skip it
-;;; 
-;;;             // add the first triangle from the point
-;;;             let t = this._addTriangle(e, i, hullNext[e], -1, -1, hullTri[e]);
-;;; 
-;;;             // recursively flip triangles from the point until they satisfy the Delaunay condition
-;;;             hullTri[i] = this._legalize(t + 2);
-;;;             hullTri[e] = t; // keep track of boundary triangles on the hull
-;;;             hullSize++;
-;;; 
-;;;             // walk forward through the hull, adding more triangles and flipping recursively
-;;;             let n = hullNext[e];
-;;;             while (q = hullNext[n], orient(x, y, coords[2 * n], coords[2 * n + 1], coords[2 * q], coords[2 * q + 1])) {
-;;;                 t = this._addTriangle(n, i, q, hullTri[i], -1, hullTri[n]);
-;;;                 hullTri[i] = this._legalize(t + 2);
-;;;                 hullNext[n] = n; // mark as removed
-;;;                 hullSize--;
-;;;                 n = q;
-;;;             }
-;;; 
-;;;             // walk backward from the other side, adding more triangles and flipping
-;;;             if (e === start) {
-;;;                 while (q = hullPrev[e], orient(x, y, coords[2 * q], coords[2 * q + 1], coords[2 * e], coords[2 * e + 1])) {
-;;;                     t = this._addTriangle(q, i, e, -1, hullTri[e], hullTri[q]);
-;;;                     this._legalize(t + 2);
-;;;                     hullTri[q] = t;
-;;;                     hullNext[e] = e; // mark as removed
-;;;                     hullSize--;
-;;;                     e = q;
-;;;                 }
-;;;             }
-;;; 
-;;;             // update the hull indices
-;;;             this._hullStart = hullPrev[i] = e;
-;;;             hullNext[e] = hullPrev[n] = i;
-;;;             hullNext[i] = n;
-;;; 
-;;;             // save the two new edges in the hash table
-;;;             hullHash[this._hashKey(x, y)] = i;
-;;;             hullHash[this._hashKey(coords[2 * e], coords[2 * e + 1])] = e;
-;;;         }
-;;; 
-;;;         this.hull = new Uint32Array(hullSize);
-;;;         for (let i = 0, e = this._hullStart; i < hullSize; i++) {
-;;;             this.hull[i] = e;
-;;;             e = hullNext[e];
-;;;         }
-;;; 
-;;;         // trim typed triangle mesh arrays
-;;;         this.triangles = this._triangles.subarray(0, this.trianglesLen);
-;;;         this.halfedges = this._halfedges.subarray(0, this.trianglesLen);
-;;;     }
 (defmethod {update Delaunator}
   (lambda (self)
     (call/cc
@@ -509,9 +287,7 @@
 
                 (let ((i2x (f64vector-ref coords (* 2 i2)))
                       (i2y (f64vector-ref coords (1+ (* 2 i2)))))
-; (debug "i0: ~a, i1: ~a, i2: ~a" i0 i1 i2)
-; 21 20 42
-; ((532 497) (585 554) (622 493))
+
                   (when (= min-radius +inf.0)
                     ; order collinear points by dx (or dy if all are identical)
                     ; and return the list as a hull
@@ -713,10 +489,6 @@
 )) ; end update method
 
 
-; DONE
-;;;     _hashKey(x, y) {
-;;;         return Math.floor(pseudoAngle(x - this._cx, y - this._cy) * this._hashSize) % this._hashSize;
-;;;     }
 (defmethod {_hash-key Delaunator}
   (lambda (self x y)
     (let ((cx (@ self _cx))
@@ -727,91 +499,6 @@
         hs))))
 
 
-; DONE
-;;;     _legalize(a) {
-;;;         const {_triangles: triangles, _halfedges: halfedges, coords} = this;
-;;; 
-;;;         let i = 0;
-;;;         let ar = 0;
-;;; 
-;;;         // recursion eliminated with a fixed-size stack
-;;;         while (true) {
-;;;             const b = halfedges[a];
-;;; 
-;;;             /* if the pair of triangles doesn't satisfy the Delaunay condition
-;;;              * (p1 is inside the circumcircle of [p0, pl, pr]), flip them,
-;;;              * then do the same check/flip recursively for the new pair of triangles
-;;;              *
-;;;              *           pl                    pl
-;;;              *          /||\                  /  \
-;;;              *       al/ || \bl            al/    \a
-;;;              *        /  ||  \              /      \
-;;;              *       /  a||b  \    flip    /___ar___\
-;;;              *     p0\   ||   /p1   =>   p0\---bl---/p1
-;;;              *        \  ||  /              \      /
-;;;              *       ar\ || /br             b\    /br
-;;;              *          \||/                  \  /
-;;;              *           pr                    pr
-;;;              */
-;;;             const a0 = a - a % 3;
-;;;             ar = a0 + (a + 2) % 3;
-;;; 
-;;;             if (b === -1) { // convex hull edge
-;;;                 if (i === 0) break;
-;;;                 a = EDGE_STACK[--i];    ;;; DEC i BEFORE INDEX ;;;
-;;;                 continue;
-;;;             }
-;;; 
-;;;             const b0 = b - b % 3;
-;;;             const al = a0 + (a + 1) % 3;
-;;;             const bl = b0 + (b + 2) % 3;
-;;; 
-;;;             const p0 = triangles[ar];
-;;;             const pr = triangles[a];
-;;;             const pl = triangles[al];
-;;;             const p1 = triangles[bl];
-;;; 
-;;;             const illegal = inCircle(
-;;;                 coords[2 * p0], coords[2 * p0 + 1],
-;;;                 coords[2 * pr], coords[2 * pr + 1],
-;;;                 coords[2 * pl], coords[2 * pl + 1],
-;;;                 coords[2 * p1], coords[2 * p1 + 1]);
-;;; 
-;;;             if (illegal) {
-;;;                 triangles[a] = p1;
-;;;                 triangles[b] = p0;
-;;; 
-;;;                 const hbl = halfedges[bl];
-;;; 
-;;;                 // edge swapped on the other side of the hull (rare); fix the halfedge reference
-;;;                 if (hbl === -1) {
-;;;                     let e = this._hullStart;
-;;;                     do {
-;;;                         if (this._hullTri[e] === bl) {
-;;;                             this._hullTri[e] = a;
-;;;                             break;
-;;;                         }
-;;;                         e = this._hullPrev[e];
-;;;                     } while (e !== this._hullStart);
-;;;                 }
-;;;                 this._link(a, hbl);
-;;;                 this._link(b, halfedges[ar]);
-;;;                 this._link(ar, bl);
-;;; 
-;;;                 const br = b0 + (b + 1) % 3;
-;;; 
-;;;                 // don't worry about hitting the cap: it can only happen on extremely degenerate input
-;;;                 if (i < EDGE_STACK.length) {
-;;;                     EDGE_STACK[i++] = br;
-;;;                 }
-;;;             } else {
-;;;                 if (i === 0) break;
-;;;                 a = EDGE_STACK[--i];     ;;; DEC i BEFORE INDEX ;;;
-;;;             }
-;;;         }
-;;; 
-;;;         return ar;
-;;;     }
 (defmethod {_legalize Delaunator}
   (lambda (self a)
     (let ((triangles (@ self _triangles))
@@ -858,28 +545,15 @@
                           (br (+ b0 (modulo (1+ b) 3))))
 
                       (when (= hbl -1) ; edge swapped on other side of hull (rare) -fix halfedge reference
-
                         (call/cc
                           (lambda (done)
-
-                            ; (do ((e (@ self _hull-start) (u32vector-ref (@ self _hull-prev) e)))
-                            ;         ((not (= e (@ self _hull-start))))
-                            ;   (when (= (u32vector-ref (@ self _hull-tri) e) bl)
-                            ;     (u32vector-set! (@ self _hull-tri) e a)
-                            ;     ; TODO: break out of this do :/
-                            ;     ))
-                            ; let looping version of above do?
                             (let lpi ((e (@ self _hull-start)))
                               (when (= (u32vector-ref (@ self _hull-tri) e) bl)
                                 (u32vector-set! (@ self _hull-tri) e a)
                                 (done)
                               (set! e (u32vector-ref (@ self _hull-prev) e)))
                               (unless (= e (@ self _hull-start))
-                                (lpi e)))
-
-                          )
-                        )
-                      )
+                                (lpi e))))))
 
                       {_link self a hbl}
                       {_link self b (s32vector-ref halfedges ar)}
@@ -902,11 +576,6 @@
 ))) ; end _legalize method
 
 
-; DONE
-;;;     _link(a, b) {
-;;;         this._halfedges[a] = b;
-;;;         if (b !== -1) this._halfedges[b] = a;
-;;;     }
 (defmethod {_link Delaunator}
   (lambda (self a b)
     (let (halfedges (@ self _halfedges))
@@ -914,23 +583,6 @@
       (unless (= b -1) (s32vector-set! halfedges b a)))))
 
 
-; DONE
-;;;     // add a new triangle given vertex indices and adjacent half-edge ids
-;;;     _addTriangle(i0, i1, i2, a, b, c) {
-;;;         const t = this.trianglesLen;
-;;; 
-;;;         this._triangles[t] = i0;
-;;;         this._triangles[t + 1] = i1;
-;;;         this._triangles[t + 2] = i2;
-;;; 
-;;;         this._link(t, a);
-;;;         this._link(t + 1, b);
-;;;         this._link(t + 2, c);
-;;; 
-;;;         this.trianglesLen += 3;
-;;; 
-;;;         return t;
-;;;     }
 (defmethod {_add-triangle Delaunator}
   (lambda (self i0 i1 i2 a b c)
     (let ((t (@ self triangles-length))
@@ -953,8 +605,7 @@
             (@ self max-X) (@ self max-Y))))
 
 
-; DONE
-; MAYBE: support taking vector or list?
+; TODO: support taking vector or list?
 (def (delaunator/from points ; vector of pairs
                       get/x: (get/x car)
                       get/y: (get/y cadr))
@@ -1012,17 +663,7 @@
             #f)))
       (halfedge-ids-of-triangle t))))
 
-; DONE: - Generator/Iterator for each-triangle-edge
-;       - companion proc which takes a callback instead?
-;;; function forEachTriangleEdge(points, delaunay, callback) {
-;;;     for (let e = 0; e < delaunay.triangles.length; e++) {
-;;;         if (e > delaunay.halfedges[e]) {
-;;;             const p = points[delaunay.triangles[e]];
-;;;             const q = points[delaunay.triangles[nextHalfedge(e)]];
-;;;             callback(e, p, q);
-;;;         }
-;;;     }
-;;; }
+
 ; Delaunator -> (#!void -> halfedge-id f64vector f64vector)
 ; Provides an iterator yielding values for each edge of the triangulation.
 ; The values yielded are the id of the halfedge chosen for the edge, a
@@ -1042,13 +683,7 @@
                  (q (subf64vector coords (* 2 qid) (+ (* 2 qid) 2))))
             (yield e p q)))))))
 
-; DONE: - Generator/Iterator for each-triangle
-;       - companion proc which takes a callback instead?
-;;; function forEachTriangle(points, delaunay, callback) {
-;;;     for (let t = 0; t < delaunay.triangles.length / 3; t++) {
-;;;         callback(t, pointsOfTriangle(delaunay, t).map(p => points[p]));
-;;;     }
-;;; }
+
 ; Delaunator -> (#!void -> triangle-id f64vector f64vector f64vector)
 ; Provides an iterator yielding values for each triangle of the triangulation.
 ; The values yielded are the id of the triangle, and three f64vector, each 
@@ -1065,6 +700,7 @@
                 (p3 (subf64vector coords (* 2 pid3) (+ (* 2 pid3) 2))))
             (yield t p1 p2 p3)))))))
 
+
 ; Delaunator triangle-id -> f64vector
 ; The circumcenter of triangle with id `t`.
 (defmethod {triangle-center Delaunator}
@@ -1078,6 +714,7 @@
                                            (f64vector-ref p2 0) (f64vector-ref p2 1)
                                            (f64vector-ref p3 0) (f64vector-ref p3 1))))
         (f64vector cx cy)))))
+
 
 ; Delaunator -> (#!void -> halfedge-id f64vector f64vector)
 ; Provides an iterator yielding values for each bisecting voronoi edge of the
@@ -1099,6 +736,7 @@
                  (q {triangle-center self (triangle-id-of-edge (s32vector-ref (@ self halfedges) e))}))
             (yield e p q)))))))
 
+
 ; Delaunator halfedge-id -> List-of-halfedge-ids
 ; The ids of all halfedges pointing to the point that `start` points to.
 ; `start` should not point to a point on the hull.
@@ -1114,6 +752,7 @@
                     (= incoming start))
           (lp)))
       result)))
+
 
 ; Delaunator -> (#!void -> point-id f64vector-of-f64vector)
 ; Provides an iterator yielding values for each region of the voronoi diagram.
@@ -1139,6 +778,7 @@
                      (vertices (map (lambda (tid) {triangle-center self tid}) triangle-ids)))
                 (yield p vertices)))))))))
 
+
 ; TODO: Add a point id to incoming halfedge index for site specific region lookiup
 ; const index = new Map(); // point id to half-edge id
 ; for (let e = 0; e < delaunay.triangles.length; e++) {
@@ -1147,10 +787,3 @@
 ;         index.set(endpoint, e);
 ;     }
 ; }
-
-; MAYBE
-; Procs to pull out to module level for possible reuse?
-; - in-circle
-; - swap
-; - dist
-; - circumradius
