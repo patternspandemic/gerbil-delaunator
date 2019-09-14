@@ -188,7 +188,8 @@
    _ids             ; helper for sorting points
    _dists           ; helper for sorting points
    _cx              ; temporary circumcenter x
-   _cy)             ; temporary circumcenter y
+   _cy              ; temporary circumcenter y
+   _point-to-leftmost-halfedge-index) ; for fast lookup of leftmost incoming halfedge
   constructor: :init!)
 
 
@@ -216,10 +217,15 @@
       (set! (@ self _hull-hash) (make-s32vector hash-size -1))
       ; Temporary vectors for sorting points
       (set! (@ self _ids) (make-u32vector n))
-      (set! (@ self _dists) (make-f64vector n)))
+      (set! (@ self _dists) (make-f64vector n))
+      ; Index points to their leftmost incoming halfedge
+      ; TODO: Tune hash table options...
+      (set! (@ self _point-to-leftmost-halfedge-index) (make-hash-table)))
     {update self}))
 
 
+; TODO: update is not written to support a change in the number of coords.
+;       Support it or guard against it.
 (defmethod {update Delaunator}
   (lambda (self)
     (call/cc
@@ -481,6 +487,18 @@
                                 ((< i hull-size))
                         (u32vector-set! (@ self hull) i e))
 
+                      ; Build the index of point id to leftmost incoming halfedge,
+                      ; useful for retrieving adhoc voronoi regions.
+                      ; TODO: Clear to old size for more efficiency?
+                      (hash-clear! (@ self _point-to-leftmost-halfedge-index)) ; reset index from prev update
+                      (do-while ((e 0 (1+ e)))
+                                ((< e (@ self triangles-length)))
+                        (let ((endpoint (u32vector-ref (@ self _triangles) (next-halfedge e)))
+                              (index (@ self _point-to-leftmost-halfedge-index)))
+                          (if (or (not (hash-key? index endpoint))
+                                  (= (s32vector-ref (@ self _halfedges) endpoint) -1))
+                            (hash-put! index endpoint e))))
+
                       ; Trim typed triangle mesh vectors
                       (set! (@ self triangles) (subu32vector (@ self _triangles) 0 triangles-length))
                       (set! (@ self halfedges) (subs32vector (@ self _halfedges) 0 triangles-length)))
@@ -664,6 +682,53 @@
       (halfedge-ids-of-triangle t))))
 
 
+; Delaunator -> (#!void -> point-id f64vector)
+; Provides an iterator yielding values for each point of the triangulation.
+; The values yielded are the id of the point, and a f64vector describing the
+; point's location.
+(defmethod {iter-points Delaunator}
+  (lambda (self)
+    (lambda ()
+      (let (coords (@ self coords))
+        (do-while ((p 0 (1+ p)))
+                  ((< p (/ (f64vector-length coords) 2)))
+          (yield p (subf64vector coords (* 2 p) (+ (* 2 p) 2))))))))
+
+
+; TODO: Fix point id
+; Delaunator -> (#!void -> point-id f64vector)
+; Provides an iterator yielding values for each point of the triangulation's
+; hull. The values yielded are the id of the point, and a f64vector describing
+; the point's location.
+(defmethod {iter-hull-points Delaunator}
+  (lambda (self)
+    (lambda ()
+      (let ((coords (@ self coords))
+            (hull (@ self hull)))
+        (do-while ((p 0 (1+ p)))
+                  ((< p (u32vector-length hull)))
+          (yield p (subf64vector coords (* 2 (u32vector-ref hull p)) (+ (* 2 (u32vector-ref hull p)) 2))))))))
+
+
+(defmethod {iter-hull-edges Delaunator}
+  (lambda (self)
+    (lambda ()
+      (let* ((coords (@ self coords))
+             (hull (@ self hull))
+             (hull-next (@ self _hull-next))
+             (index (@ self _point-to-leftmost-halfedge-index)))
+            ;  (start (u32vector-ref hull 0))
+        (do-while ((e 0 (1+ e)))
+                  ((< e (u32vector-length hull)))
+          (let* ((pid (u32vector-ref hull e))
+                 (qid (u32vector-ref hull-next pid))
+                 (halfedge-id (hash-get index qid))
+                 (p (subf64vector coords (* 2 pid) (+ (* 2 pid) 2)))
+                 (q (subf64vector coords (* 2 qid) (+ (* 2 qid) 2))))
+            ; TODO: Confirm triangles[halfedge-id] is same as pid
+            (yield halfedge-id p q)))))))
+
+
 ; Delaunator -> (#!void -> halfedge-id f64vector f64vector)
 ; Provides an iterator yielding values for each edge of the triangulation.
 ; The values yielded are the id of the halfedge chosen for the edge, a
@@ -672,16 +737,16 @@
 (defmethod {iter-triangle-edges Delaunator}
   (lambda (self)
     (lambda ()
-      (do-while ((e 0 (1+ e)))
-                ((< e (@ self triangles-length)))
-        (when (> e (s32vector-ref (@ self halfedges) e))
-          (let* ((coords (@ self coords))
-                 (triangles (@ self triangles))
-                 (pid (u32vector-ref triangles e))
-                 (qid (u32vector-ref triangles (next-halfedge e)))
-                 (p (subf64vector coords (* 2 pid) (+ (* 2 pid) 2)))
-                 (q (subf64vector coords (* 2 qid) (+ (* 2 qid) 2))))
-            (yield e p q)))))))
+      (let ((coords (@ self coords))
+            (triangles (@ self triangles)))
+        (do-while ((e 0 (1+ e)))
+                  ((< e (@ self triangles-length)))
+          (when (> e (s32vector-ref (@ self halfedges) e))
+            (let* ((pid (u32vector-ref triangles e))
+                   (qid (u32vector-ref triangles (next-halfedge e)))
+                   (p (subf64vector coords (* 2 pid) (+ (* 2 pid) 2)))
+                   (q (subf64vector coords (* 2 qid) (+ (* 2 qid) 2))))
+              (yield e p q))))))))
 
 
 ; Delaunator -> (#!void -> triangle-id f64vector f64vector f64vector)
@@ -779,11 +844,7 @@
                 (yield p vertices)))))))))
 
 
-; TODO: Add a point id to incoming halfedge index for site specific region lookiup
-; const index = new Map(); // point id to half-edge id
-; for (let e = 0; e < delaunay.triangles.length; e++) {
-;     const endpoint = delaunay.triangles[nextHalfedge(e)];
-;     if (!index.has(endpoint) || delaunay.halfedges[e] === -1) {
-;         index.set(endpoint, e);
-;     }
-; }
+; Delaunator -> (#!void -> halfedge-id f64vector f64vector)
+; Provides an iterator yielding values for each edge of the triangulation's hull.
+; The values yielded are the id of the 
+
