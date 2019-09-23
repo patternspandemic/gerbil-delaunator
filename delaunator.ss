@@ -496,7 +496,7 @@
                         (let ((endpoint (u32vector-ref (@ self _triangles) (next-halfedge e)))
                               (index (@ self _point-to-leftmost-halfedge-index)))
                           (if (or (not (hash-key? index endpoint))
-                                  (= (s32vector-ref (@ self _halfedges) endpoint) -1))
+                                  (= (s32vector-ref (@ self _halfedges) e) -1))
                             (hash-put! index endpoint e))))
 
                       ; Trim typed triangle mesh vectors
@@ -791,9 +791,9 @@
 ; halfedge chosen for the bisected edge, a f64vector describing the
 ; circumcenter of the triangle for which that halfedge is a part, and a
 ; f64vector describing the circumcenter of the adjacent triangle for which that
-; halfedge's compliment is a part. By default, no voronoi edges bisecting the
-; hull of the triangulation are provided. For such bisectors to be included, a
-; bounding region must be provided to clip these edges against.
+; halfedge's compliment is a part. Excluded by default are infinite voronoi
+; edges, which result from bisecting halfedges on the hull. For such bisectors
+; to be included, a bounding region must be provided to clip these edges against.
 ; TODO: Support voronoi edges of the hull.
 (defmethod {iter-voronoi-edges Delaunator}
   (lambda (self) ;(lambda (self bounds: (bounds #f)) ...)
@@ -826,7 +826,9 @@
 ; Delaunator -> (#!void -> point-id f64vector-of-f64vector)
 ; Provides an iterator yielding values for each region of the voronoi diagram.
 ; The values yielded are the id of the point to which the region belongs, and
-; a list of f64vectors, describing the region's polygon.
+; a list of f64vectors, describing the region's polygon. Excluded by default
+; are infinite unbound regions. For such regions to be included, a bounding
+; region must be provided to clip these regions against.
 ; TODO: Support voronoi regions of the hull.
 (defmethod {iter-voronoi-regions Delaunator}
   (lambda (self)  ;(lambda (self bounds: (bounds #f)) ...)
@@ -847,6 +849,7 @@
                      (vertices (map (lambda (tid) {triangle-center self tid}) triangle-ids)))
                 (yield p vertices)))))))))
 
+; FIXME: Does not provide clipped regions for points on hull
 (defmethod {voronoi-region Delaunator}
   (lambda (self point-id)
     (let* ((incoming-halfedge (hash-get (@ self _point-to-leftmost-halfedge-index) point-id))
@@ -858,3 +861,31 @@
 
 
 ; {iter-triangle-centers} ?
+
+
+; TODO: ONION
+;;; public function calcOnion(voronoi:Voronoi):Array<Array<Point>> 
+;;; {
+;;;   var res = new Array<Array<Point>>();
+;;;   var points = voronoi.siteCoords();
+;;;   ; 
+;;;   while (points.length > 2) {
+;;;     var v:Voronoi = new Voronoi(points, null, BOUNDS);
+;;;     var peel = v.hullPointsInOrder();
+;;;     for (p in peel) points.remove(p);
+;;;     res.push(peel);
+;;;     v.dispose();
+;;;     v = null;
+;;;   }
+;;;   if (points.length > 0) res.push(points);
+;;;   ; 
+;;;   return res;
+;;; }
+
+; Features TODO:
+; - Centroids (of regions)
+; - Spanning Tree
+; - Neighbor Sites
+; - Circles (Largest circle fitting the region of each site, centered at site)
+; - Nearest Site
+; - 
