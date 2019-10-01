@@ -860,8 +860,26 @@
       (values p vertices))))
 
 
-; {iter-triangle-centers} ?
 
+(def (midpoint px py qx qy)
+  (values (/ (+ px qx) 2)   ; mid x
+          (/ (+ py qy) 2))) ; mid y
+
+(def (perp-bisect-slope px py qx qy)
+  (values (* -1 (- qx px)) ; n
+          (- qy py)))      ; d
+
+(def (y-intercept x y a b)
+  (- y (/ (* a x) b)))
+
+(def (abc-of-bisector n d b)
+  (values (* -1 n) ; A
+          d ; B
+          (* d (* -1 b)))) ; C
+
+
+
+; {iter-triangle-centers} ?
 
 ; TODO: ONION
 ;;; public function calcOnion(voronoi:Voronoi):Array<Array<Point>> 
