@@ -867,7 +867,7 @@
 
 (def (perp-bisect-slope px py qx qy)
   (values (* -1 (- qx px)) ; n
-          (- qy py)))      ; d
+          (- qy py)))      ; d, LOL div by 0 !
 
 (def (y-intercept x y a b)
   (- y (/ (* a x) b)))

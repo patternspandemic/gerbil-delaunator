@@ -3,4 +3,5 @@
 (import :std/build-script)
 
 (defbuild-script
-  '("delaunator"))
+  '("delaunator"
+    "vec"))
